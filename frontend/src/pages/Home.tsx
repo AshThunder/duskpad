@@ -122,7 +122,7 @@ function LedgerMock() {
           </div>
         ))}
         <div className="mt-5 rounded-2xl bg-primary-fixed p-4 text-[13px] text-[#22005d]">
-          Country, KYC level, wallet, and tickets-per-person: <b>not in any transaction.</b> Measured on a local ledger-8 network.
+          Country, KYC level, wallet, and tickets-per-person: <b>not in any transaction.</b> Illustrative rows; the hidden fields were checked by decoding real transactions on a local ledger-8 network.
         </div>
       </div>
     </div>

@@ -7,9 +7,9 @@ import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { ContractState } from '@midnight-ntwrk/compact-runtime';
-import { CostModel, Transaction } from '@midnight-ntwrk/ledger-v8';
+import { connectorProofProvider, connectorWalletProviders } from '@duskpad/sdk';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
-import { fromHex, toHex } from './hex';
+import { fromHex } from './hex';
 import { IS_LOCAL, type Endpoints } from './config';
 
 export type ContractKind = 'sale' | 'tusd';
@@ -69,13 +69,9 @@ export async function walletProviders(api: ConnectedAPI, keys: WalletKeys, ep: E
   setNetworkId(networkId as any);
   const zk = zkConfig(kind);
   let proofProvider: any = null;
-  if (opts.useWalletProver && typeof (api as any).getProvingProvider === 'function') {
-    try {
-      const pp = await (api as any).getProvingProvider(zk);
-      proofProvider = { proveTx: (tx: any) => tx.prove(pp, CostModel.initialCostModel()) };
-    } catch (e) {
-      console.warn('[duskpad] wallet proving unavailable, falling back to proof server', e);
-    }
+  if (opts.useWalletProver) {
+    try { proofProvider = await connectorProofProvider(api as any, zk); }
+    catch (e) { console.warn('[duskpad] wallet proving unavailable, falling back to proof server', e); }
   }
   proofProvider ??= httpClientProofProvider(ep.prover, zk);
   return {
@@ -83,20 +79,6 @@ export async function walletProviders(api: ConnectedAPI, keys: WalletKeys, ep: E
     publicDataProvider: publicDataProvider(ep),
     zkConfigProvider: zk,
     proofProvider,
-    walletProvider: {
-      getCoinPublicKey: () => keys.coinPublicKey,
-      getEncryptionPublicKey: () => keys.encryptionPublicKey,
-      balanceTx: async (tx: any) => {
-        const r = await api.balanceUnsealedTransaction(toHex(tx.serialize()));
-        if (!r?.tx) throw new Error('wallet returned no transaction');
-        return Transaction.deserialize('signature', 'proof', 'binding', fromHex(r.tx));
-      },
-    },
-    midnightProvider: {
-      submitTx: async (tx: any) => {
-        await api.submitTransaction(toHex(tx.serialize()));
-        return tx.identifiers()[0];
-      },
-    },
+    ...connectorWalletProviders(api as any, keys),
   } as any;
 }

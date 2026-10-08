@@ -164,11 +164,15 @@ export circuit buyTicket(coin: ShieldedCoinInfo): [] {
   assert(!buyNullifiers.member(disclose(nul)), "ticket index already used");
   buyNullifiers.insert(disclose(nul));
 
+  // The ElGamal record is always computed and only stored when the flag is on. Keeping the curve
+  // operations outside the branch matters: with them inside `if`, the proof server's /check
+  // panicked ("Point should be part of the subgroup") on sales with the auditor disabled.
+  const r = auditNonce();
+  const shared = ecMul(config.auditorPk, r);
+  const mask = transientHash<Vector<2, Field>>([jubjubPointX(shared), jubjubPointY(shared)]);
+  const record = AuditRecord { ephemeral: ecMulGenerator(r), ciphertext: holder + mask };
   if (config.auditorEnabled) {
-    const r = auditNonce();
-    const shared = ecMul(config.auditorPk, r);
-    const mask = transientHash<Vector<2, Field>>([jubjubPointX(shared), jubjubPointY(shared)]);
-    auditLog.insert(ticketsSold.read(), disclose(AuditRecord { ephemeral: ecMulGenerator(r), ciphertext: holder + mask }));
+    auditLog.insert(ticketsSold.read(), disclose(record));
   }
 
   receiveShielded(c);

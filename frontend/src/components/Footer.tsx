@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Chris Gold
 import { Link } from 'react-router-dom';
 import { Logo } from './Logo';
 

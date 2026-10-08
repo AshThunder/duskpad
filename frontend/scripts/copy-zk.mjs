@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Chris Gold
 // Copies compiled proving keys and ZKIR into public/zk so FetchZkConfigProvider can load them.
 import fs from 'node:fs';
 import path from 'node:path';

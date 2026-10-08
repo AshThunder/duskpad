@@ -13,3 +13,4 @@ e2e/.pstate/
 test-results/
 playwright-report/
 .DS_Store
+*.tsbuildinfo

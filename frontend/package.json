@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/copy-zk.mjs && tsc -b && vite build",
+    "build": "node scripts/copy-zk.mjs && tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "zk": "node scripts/copy-zk.mjs"
   },
   "dependencies": {
@@ -25,6 +25,7 @@
     "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
     "@midnight-ntwrk/midnight-js-types": "4.1.1",
     "@midnight-ntwrk/wallet-sdk-address-format": "3.1.2",
+    "buffer": "^6.0.3",
     "lucide-react": "0.468.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",

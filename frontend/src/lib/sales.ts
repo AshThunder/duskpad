@@ -92,10 +92,8 @@ export function useSaleViews(addresses: string[]) {
 export function fmtDuration(sec: number): string {
   if (sec <= 0) return '0s';
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
-  if (d) return `${d}d ${h}h`;
-  if (h) return `${h}h ${m}m`;
-  if (m) return `${m}m ${s}s`;
-  return `${s}s`;
+  const parts = d ? [[d, 'd'], [h, 'h']] : h ? [[h, 'h'], [m, 'm']] : m ? [[m, 'm'], [s, 's']] : [[s, 's']];
+  return parts.filter(([v], i) => i === 0 || v).map(([v, u]) => `${v}${u}`).join(' ');
 }
 
 export const fmtDate = (unixS: number) =>

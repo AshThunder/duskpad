@@ -88,7 +88,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         s.api.getShieldedBalances(),
         (s.api as any).getDustBalance?.().then((d: any) => d?.balance ?? null).catch(() => null) ?? null,
       ]);
-      setBalances({ shielded: shielded as Record<string, bigint>, dust, updatedAt: Date.now() });
+      // Wallets differ in how they encode amounts (bigint, number or decimal string): normalize.
+      const big = (v: unknown) => { try { return BigInt(v as any); } catch { return 0n; } };
+      const sh = Object.fromEntries(Object.entries(shielded ?? {}).map(([k, v]) => [k, big(v)]));
+      setBalances({ shielded: sh, dust: dust == null ? null : big(dust), updatedAt: Date.now() });
     } catch (e) {
       console.warn('balance refresh failed', e);
     }

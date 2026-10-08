@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Chris Gold
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppProvider } from './state/AppContext';
 import { WalletProvider } from './state/WalletContext';
 import { VaultProvider } from './state/VaultContext';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Home } from './pages/Home';
 import { Explore } from './pages/Explore';
 import { HowItWorks } from './pages/HowItWorks';
@@ -26,6 +27,7 @@ export default function App() {
             <Toaster position="top-right" richColors closeButton />
             <Navbar />
             <main className="max-w-page mx-auto px-4 md:px-10 py-10 md:py-14">
+              <Boundary>
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/explore" element={<Explore />} />
@@ -38,6 +40,7 @@ export default function App() {
                 <Route path="/platform" element={<Platform />} />
                 <Route path="*" element={<div className="text-center py-24"><h1 className="font-display text-display-md">Not found</h1></div>} />
               </Routes>
+              </Boundary>
             </main>
             <Footer />
           </BrowserRouter>
@@ -45,4 +48,9 @@ export default function App() {
       </WalletProvider>
     </AppProvider>
   );
+}
+
+function Boundary({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  return <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>;
 }

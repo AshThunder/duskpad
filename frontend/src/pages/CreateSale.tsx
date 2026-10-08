@@ -45,7 +45,8 @@ export function CreateSale() {
   const built = useMemo(() => {
     try {
       if (!network || !issuer) return { errors: ['Waiting for network configuration…'] };
-      const start = Math.floor(new Date(f.start).getTime() / 1000);
+      // A start time in the past means "start now" (the contract only needs start < end).
+      const start = Math.max(Math.floor(new Date(f.start).getTime() / 1000), Math.floor(Date.now() / 1000));
       const end = start + Number(f.duration) * UNITS[f.durationUnit];
       const input: Omit<SaleInput, 'saleId' | 'nonceSeed' | 'tokenDomain'> = {
         kind: f.kind, payColor: network.tusd.color,
@@ -60,7 +61,6 @@ export function CreateSale() {
       const errors = validateSaleInput({ ...input, saleId: new Uint8Array(32), nonceSeed: new Uint8Array(32), tokenDomain: new Uint8Array(32) });
       if (!f.name.trim()) errors.push('Give the project a name.');
       if (!/^[A-Z0-9]{2,12}$/.test(f.symbol)) errors.push('Symbol: 2 to 12 letters or digits.');
-      if (start * 1000 < Date.now() - 60_000) errors.push('Start time is in the past.');
       return { input, errors };
     } catch (e: any) { return { errors: [e.message] }; }
   }, [f, network, issuer]);
@@ -158,7 +158,7 @@ export function CreateSale() {
 
           <Section icon={<Timer size={20} />} title="Schedule and vesting">
             <div className="grid md:grid-cols-2 gap-5">
-              <Field label="Start"><input className="input" type="datetime-local" value={f.start} onChange={(e) => set('start', e.target.value)} data-testid="f-start" /></Field>
+              <Field label="Start" hint="A past time means the sale opens immediately"><input className="input" type="datetime-local" value={f.start} onChange={(e) => set('start', e.target.value)} data-testid="f-start" /></Field>
               <Field label="Duration"><Dur value={f.duration} unit={f.durationUnit} onValue={(v) => set('duration', v)} onUnit={(u) => set('durationUnit', u)} testid="f-duration" /></Field>
               <Field label="Cliff after sale end"><Dur value={f.cliffAfter} unit={f.cliffUnit} onValue={(v) => set('cliffAfter', v)} onUnit={(u) => set('cliffUnit', u)} testid="f-cliff" /></Field>
               <Field label="Vesting tranches" hint="1 to 48"><input className="input font-mono" inputMode="numeric" value={f.tranches} onChange={(e) => set('tranches', e.target.value.replace(/\D/g, ''))} data-testid="f-tranches" /></Field>

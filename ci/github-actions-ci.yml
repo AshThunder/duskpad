@@ -44,8 +44,11 @@ jobs:
       - name: SDK unit tests
         run: npm run test -w @duskpad/sdk
 
-      - name: Typecheck SDK
-        run: npm run typecheck -w @duskpad/sdk
+      - name: API tests (mock issuer + registry)
+        run: npm run test -w @duskpad/api
+
+      - name: Typecheck SDK and frontend
+        run: npm run typecheck
 
       - name: Build frontend
         run: npm run build -w @duskpad/frontend

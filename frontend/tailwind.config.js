@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Chris Gold
 /** DuskPad design tokens. The palette, type scale and radii follow the Material-3 style
  *  system used in Chris Gold's Dutch Auction UI, re-themed for "dusk". */
 import forms from '@tailwindcss/forms';
