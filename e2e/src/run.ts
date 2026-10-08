@@ -75,7 +75,11 @@ async function race(fns: [() => Promise<unknown>, () => Promise<unknown>]) {
   const r = await Promise.allSettled(fns.map((f) => f()));
   const won = r.filter((x) => x.status === 'fulfilled').length;
   const lost = r.find((x) => x.status === 'rejected') as PromiseRejectedResult | undefined;
-  return { won, loserError: lost ? allText(lost.reason) : '' };
+  const text = lost ? allText(lost.reason) : '';
+  const status = text.match(/"status":\s*"(\w+)"/)?.[1];
+  const txId = text.match(/"txId":\s*"([0-9a-f]{12})/)?.[1];
+  // The loser is normally included on-chain with its fallible segment failed (status FailFallible).
+  return { won, loserError: status ? `included on-chain as ${status} (tx ${txId}…)` : text.replace(/\s+/g, ' ') };
 }
 
 // ------------------------------------------------------------------------------------------
@@ -389,7 +393,7 @@ try {
     `# DuskPad e2e run ${RUN_ID}`, '',
     `Local ledger-8 network. ${pass}/${rows.length} passed (${core.filter((r) => r.ok).length}/${core.length} matrix rows, ${rows.filter((r) => r.id.startsWith('X-') && r.ok).length} extras).`, '',
     '| ID | Test | Result | Where enforced | s |', '|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.id} | ${r.name} | ${r.ok ? 'PASS' : '**FAIL**'}: ${r.detail.replace(/\|/g, '/')} | ${r.where} | ${r.secs.toFixed(0)} |`),
+    ...rows.map((r) => `| ${r.id} | ${r.name} | ${r.ok ? 'PASS' : '**FAIL**'}: ${r.detail.replace(/\s+/g, ' ').replace(/\|/g, '/')} | ${r.where} | ${r.secs.toFixed(0)} |`),
   ].join('\n');
   fs.writeFileSync(path.join(REPORTS, `run-${RUN_ID}.json`), JSON.stringify({ runId: RUN_ID, pass, total: rows.length, rows }, null, 2));
   fs.writeFileSync(path.join(REPORTS, `run-${RUN_ID}.md`), md);

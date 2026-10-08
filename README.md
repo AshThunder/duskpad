@@ -176,7 +176,7 @@ Deployments on Preprod use `mode: 'async'` (the app returns once the wallet acce
 | Contract simulator | `npm test -w @duskpad/contracts` | 51 sale + 3 tUSD tests on the compiled contract, in-process (every assertion message, caps, phases, fee and tranche math, auditor records) | **54 / 54** |
 | SDK unit | `npm test -w @duskpad/sdk` | Credentials, derivations, backups (wrong passphrase, tampering), schedule math, address parsing | **16 / 16** |
 | API | `npm test -w @duskpad/api` | Mock issuer validation and signatures, registry validation | **5 / 5** |
-| End-to-end matrix | `npm run e2e` | The 44-row feasibility matrix reproduced on DuskPad's contracts plus 3 extras, real proofs and transactions on the local stack | **E2E_RESULT** |
+| End-to-end matrix | `npm run e2e` | The 44-row feasibility matrix reproduced on DuskPad's contracts plus 3 extras, real proofs and transactions on the local stack | **47 / 47** (44/44 matrix rows + 3 extras) |
 | Browser flow | `npm run e2e:ui` | Playwright drives the production build with dev wallets: 2 sales, credentials, 4 buys, cap and region checks, finalize both ways, refund, withdraw, fee collection, backup export/import, fresh-wallet claim, report, auditor view | **UI_RESULT** |
 
 The latest e2e report is in [`e2e/reports/LATEST.md`](e2e/reports/LATEST.md), and screenshots from the browser flow are in [`docs/screenshots`](docs/screenshots).
