@@ -10,40 +10,60 @@
 //
 // Usage: node e2e/ui/flow.mjs   (BASE=http://127.0.0.1:5173 SHOTS=/workspace/duskpad-shots)
 import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
 const BASE = process.env.BASE ?? 'http://127.0.0.1:4173'; // vite preview of the production build
 const SHOTS = process.env.SHOTS ?? '/workspace/duskpad-shots';
 const CHROME = process.env.CHROME ?? '/usr/bin/google-chrome';
 const SALE_MIN = Number(process.env.SALE_MIN ?? 7);
 mkdirSync(SHOTS, { recursive: true });
+// Resumable: each persona keeps a persistent browser profile (its private vault lives in IndexedDB),
+// and finished steps are recorded, so `RESUME=1 node e2e/ui/flow.mjs` continues after a failure.
+const WORK = process.env.UI_WORK ?? '/tmp/duskpad-ui-flow';
+const STATE = `${WORK}/state.json`;
+const RESUME = process.env.RESUME === '1' && existsSync(STATE);
+if (!RESUME) { rmSync(WORK, { recursive: true, force: true }); }
+mkdirSync(WORK, { recursive: true });
+const state = RESUME ? JSON.parse(readFileSync(STATE, 'utf8')) : { done: [], shotN: 0 };
+const save = () => writeFileSync(STATE, JSON.stringify(state, null, 2));
 
 const t0 = Date.now();
 const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0).padStart(4)}s]`, ...a);
 const results = [];
-let shotN = 0;
-const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+let shotN = state.shotN ?? 0;
+const contexts = [];
 
 async function shot(page, name, full = false) {
   const f = `${SHOTS}/${String(++shotN).padStart(2, '0')}-${name}.png`;
+  state.shotN = shotN; save();
   await page.screenshot({ path: f, fullPage: full });
   log('  shot', f);
 }
 
 async function step(name, fn) {
+  if (state.done.includes(name)) { log('SKIP (done)', name); results.push({ name, ok: true, resumed: true }); return; }
   const s = Date.now();
-  try { await fn(); results.push({ name, ok: true, secs: (Date.now() - s) / 1000 }); log('PASS', name); }
+  try { await fn(); results.push({ name, ok: true, secs: (Date.now() - s) / 1000 }); state.done.push(name); save(); log('PASS', name); }
   catch (e) { results.push({ name, ok: false, error: String(e.message ?? e).slice(0, 400) }); log('FAIL', name, e.message); throw e; }
 }
+/** Screenshot-only detours between steps: never abort the run, skip quietly when resuming past them. */
+async function extra(fn) { try { await fn(); } catch (e) { log('  (extra skipped)', String(e.message).split('\n')[0]); } }
 
 async function persona(id) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 960 }, acceptDownloads: true });
-  const page = await ctx.newPage();
+  const ctx = await chromium.launchPersistentContext(`${WORK}/profile-${id}`, { executablePath: CHROME, args: ['--no-sandbox'], viewport: { width: 1440, height: 960 }, acceptDownloads: true });
+  contexts.push(ctx);
+  const page = ctx.pages()[0] ?? await ctx.newPage();
   page.on('pageerror', (e) => log(`  [${id}] pageerror`, e.message.slice(0, 200)));
   page.on('console', (m) => { if (m.type() === 'error') log(`  [${id}] console.error`, m.text().slice(0, 240)); });
   await page.goto(BASE + '/');
-  await page.click('[data-testid=connect-wallet]');
-  await page.click(`[data-testid="wallet-duskpad-dev-${id}"]`);
+  const which = await Promise.race([
+    page.waitForSelector('button[aria-label="Disconnect wallet"]', { timeout: 20_000 }).then(() => 'connected'),
+    page.waitForSelector('[data-testid=connect-wallet]', { timeout: 20_000 }).then(() => 'connect'),
+  ]);
+  if (which === 'connect') {
+    await page.click('[data-testid=connect-wallet]');
+    await page.click(`[data-testid="wallet-duskpad-dev-${id}"]`);
+  }
   await page.waitForSelector('button[aria-label="Disconnect wallet"]', { timeout: 60_000 });
   return page;
 }
@@ -133,28 +153,32 @@ async function waitUntil(page, sel, timeout = 1_200_000) {
 try {
   // ---- Project creates two sales ----------------------------------------------------------
   const project = await persona('project');
-  await shot(project, 'home');
-  let saleA, saleB;
+  if (!RESUME) await shot(project, 'home');
+  let saleA = state.saleA, saleB = state.saleB;
   await step('project deploys a fixed-price sale (soft cap 2, max 2/person, KYC>=2, blocks one region, auditor on)', async () => {
     saleA = await createSale(project, { name: 'Nova Labs', symbol: 'NOVA', description: 'Private compute marketplace token. Demo sale on the local devnet.', kind: 'fixedPrice', price: '100', hard: '6', soft: '2', max: '2', minutes: SALE_MIN, minKyc: 2, minKycLabel: 'Verified', block: [408], auditor: true, shot: true });
-    log('  sale A', saleA);
+    state.saleA = saleA; save(); log('  sale A', saleA);
   });
   await step('project deploys a second sale that will miss its soft cap', async () => {
     saleB = await createSale(project, { name: 'Lumen Grid', symbol: 'LUMEN', description: 'Energy data network. This demo sale is set up to miss its soft cap.', kind: 'fixedPrice', price: '50', hard: '5', soft: '3', max: '1', minutes: SALE_MIN });
-    log('  sale B', saleB);
+    state.saleB = saleB; save(); log('  sale B', saleB);
   });
-  await project.goto(BASE + '/explore');
-  await project.waitForSelector('[data-testid=sale-card]');
-  await project.waitForTimeout(2500);
-  await shot(project, 'explore');
+  if (!RESUME) await extra(async () => {
+    await project.goto(BASE + '/explore');
+    await project.waitForSelector('[data-testid=sale-card]');
+    await project.waitForTimeout(2500);
+    await shot(project, 'explore');
+  });
 
   // ---- Buyers ------------------------------------------------------------------------------
   const alice = await persona('alice');
   await step('alice gets a mock credential (Nigeria, Verified)', () => getCredential(alice, 566, 2, 'credential'));
   await step('alice mints test tUSD', () => faucet(alice));
-  await alice.goto(`${BASE}/sale/${saleA}`);
-  await alice.waitForSelector('[data-testid=buy-ticket]');
-  await shot(alice, 'sale-detail-live');
+  if (!state.done.includes('alice buys ticket 1 of 2 (stepper shows the private pipeline)')) await extra(async () => {
+    await alice.goto(`${BASE}/sale/${saleA}`);
+    await alice.waitForSelector('[data-testid=buy-ticket]', { timeout: 15_000 });
+    await shot(alice, 'sale-detail-live');
+  });
   await step('alice buys ticket 1 of 2 (stepper shows the private pipeline)', () => buy(alice, saleA, 'buy-stepper'));
   await step('alice buys ticket 2 of 2', () => buy(alice, saleA));
   await step('alice is stopped at the per-person cap', async () => {
@@ -222,10 +246,14 @@ try {
   await step('platform collects the fee coin', async () => {
     await platform.goto(BASE + '/platform');
     await platform.click('[data-testid=load-dev-master]');
-    await platform.waitForSelector('[data-testid=collect-fee]:not([disabled])', { timeout: 120_000 });
+    const enabled = platform.locator('[data-testid=collect-fee]:not([disabled])').first();
+    await enabled.waitFor({ timeout: 120_000 });
+    await platform.waitForTimeout(1500);
     await shot(platform, 'platform-fees');
-    await platform.click('[data-testid=collect-fee]');
-    await platform.waitForFunction(() => document.querySelector('[data-testid=pending-fees]')?.textContent === '0' || document.body.innerText.includes('Stopped'), null, { timeout: 900_000, polling: 2000 });
+    const before = Number((await platform.locator('[data-testid=pending-fees]').textContent()).replace(/,/g, ''));
+    await enabled.click();
+    await platform.waitForFunction((b) => Number((document.querySelector('[data-testid=pending-fees]')?.textContent ?? '0').replace(/,/g, '')) < b || document.body.innerText.includes('Stopped'), before, { timeout: 900_000, polling: 2000 });
+    log(`  pending fees ${before} -> ${await platform.locator('[data-testid=pending-fees]').textContent()}`);
     if (await platform.getByText('Stopped').count()) throw new Error('collectFee failed');
   });
 
@@ -283,5 +311,5 @@ try {
   const ok = results.filter((r) => r.ok).length;
   log(`UI flow: ${ok}/${results.length} steps passed`);
   writeFileSync(`/tmp/duskpad-ui-flow-results.json`, JSON.stringify(results, null, 2));
-  await browser.close();
+  for (const c of contexts) await c.close().catch(() => {});
 }
