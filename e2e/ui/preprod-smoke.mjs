@@ -9,13 +9,15 @@ import { chromium } from 'playwright';
 
 const BASE = process.env.BASE ?? 'http://127.0.0.1:4174';
 const CHROME = process.env.CHROME ?? '/usr/bin/google-chrome';
+const ISOLATED = process.env.SMOKE_ISOLATED === '1';
 const CPK = 'mn_shield-cpk_preprod17jrde8jwl92xnc9yxt4wuuk90eay73y3sgrfkh4dpz6sf700rduqma8le8';
 const EPK = 'mn_shield-epk_preprod199h826c7tzf7rmzkr3gx78qzc2jlxtctcdrwn9usa965rsk449zq6duxvd';
 const ADDR = 'mn_shield-addr_preprod17jrde8jwl92xnc9yxt4wuuk90eay73y3sgrfkh4dpz6sf700rduzjmn4dv093ylpa3tpc5r0rspv9f0n9u9ux3hfj7gwja2pct26j3qstf7q9';
 
-function stub({ key, name, rdns, networkId, balanced = null, submitPlan = null }) {
+function stub({ key, name, rdns, networkId, balanced = null, submitPlan = null, pendingFirst = 0 }) {
   return `(() => {
     const balanced = ${JSON.stringify(balanced)}, plan = ${JSON.stringify(submitPlan)};
+    let pendingLeft = ${JSON.stringify(pendingFirst)};
     const calls = window.__calls = { balance: [], submit: [] };
     const err182 = () => Object.assign(new Error('Operation failed: 1010: Invalid Transaction: Custom error: 182: (FiberFailure) SubmissionError: Transaction submission error'),
       { code: 'InternalError', reason: 'Operation failed: 1010: Invalid Transaction: Custom error: 182: (FiberFailure) SubmissionError: Transaction submission error' });
@@ -31,6 +33,8 @@ function stub({ key, name, rdns, networkId, balanced = null, submitPlan = null }
       balanceUnsealedTransaction: async (hex) => {
         if (!balanced) throw Object.assign(new Error('stub'), { code: 'Rejected' });
         calls.balance.push(hex); await new Promise((r) => setTimeout(r, 300));
+        if (pendingLeft-- > 0) throw Object.assign(new Error('A transaction is already pending. Wait for it to confirm or expire before requesting another.'),
+          { code: 'InternalError', reason: 'A transaction is already pending. Wait for it to confirm or expire before requesting another.' });
         return { tx: balanced[Math.min(calls.balance.length - 1, balanced.length - 1)] };
       },
       submitTransaction: async (hex) => {
@@ -49,10 +53,29 @@ const results = [];
 const check = (name, ok, extra = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' · ' + extra : ''}`); };
 
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+// The setup scenarios need "Preprod not set up yet", whatever the real API has recorded.
+async function newContext() {
+  const ctx = await browser.newContext();
+  await ctx.route('**/api/networks/preprod', (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"network not found"}' }));
+  if (ISOLATED) {
+    // SMOKE_ISOLATED=1: never reach the real API, proof server or prover proxy (safe while other tests run).
+    await ctx.route(/\/api\/(?!networks\/preprod)/, (r) => {
+      const u = new URL(r.request().url());
+      if (u.pathname.endsWith('/sales')) return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      if (u.pathname.endsWith('/issuer')) return r.fulfill({ status: 200, contentType: 'application/json', body: '{"name":"Mock issuer","publicKey":{"x":"1","y":"2"},"mock":true}' });
+      return r.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not found"}' });
+    });
+    await ctx.route(/localhost:6300|127\.0\.0\.1:6300|\/prover\//, (r) => {
+      const u = new URL(r.request().url());
+      return u.pathname.endsWith('/version') ? r.fulfill({ status: 200, contentType: 'text/plain', body: '8.1.0' }) : r.fulfill({ status: 503, body: 'isolated' });
+    });
+  }
+  return ctx;
+}
 try {
   // 1) 1AM-like stub on preprod
   {
-    const ctx = await browser.newContext();
+    const ctx = await newContext();
     await ctx.addInitScript(stub({ key: '1am', name: '1AM', rdns: 'com.midnight.1am', networkId: 'preprod' }));
     await ctx.addInitScript(stub({ key: 'mnLace', name: 'Lace', rdns: 'io.lace.wallet', networkId: 'preprod' }));
     const page = await ctx.newPage();
@@ -83,7 +106,7 @@ try {
   }
   // 2) wallet on the wrong network
   {
-    const ctx = await browser.newContext();
+    const ctx = await newContext();
     await ctx.addInitScript(stub({ key: '1am', name: '1AM', rdns: 'com.midnight.1am', networkId: 'preview' }));
     const page = await ctx.newPage();
     await page.goto(BASE + '/dashboard');
@@ -103,9 +126,9 @@ try {
       const tx = Transaction.fromParts('preprod', undefined, undefined, Intent.new(new Date(ttlMs)).addDeploy(new ContractDeploy(new ContractState())));
       return Buffer.from((await tx.prove(noProver, CostModel.initialCostModel())).bind().serialize()).toString('hex').toUpperCase();
     };
-    const runSetup = async (balanced, submitPlan) => {
-      const ctx = await browser.newContext();
-      await ctx.addInitScript(stub({ key: '1am', name: '1AM', rdns: 'com.midnight.1am', networkId: 'preprod', balanced, submitPlan }));
+    const runSetup = async (balanced, submitPlan, pendingFirst = 0) => {
+      const ctx = await newContext();
+      await ctx.addInitScript(stub({ key: '1am', name: '1AM', rdns: 'com.midnight.1am', networkId: 'preprod', balanced, submitPlan, pendingFirst }));
       const page = await ctx.newPage();
       await page.goto(BASE + '/setup');
       await page.getByRole('button', { name: 'Connect wallet' }).first().click();
@@ -141,6 +164,18 @@ try {
       check('persistent 182 gives up after 2 re-balances', calls.submit.length === 3 && calls.balance.length === 3, `balance ${calls.balance.length}, submit ${calls.submit.length}`);
       check('182 error explains the fee window and names prover, indexer and wallet',
         /fee window/.test(msg) && /Dust Sponsorship/.test(msg) && /Prover: proof server localhost:6300/.test(msg) && /Indexer: indexer\.preprod\.midnight\.network/.test(msg) && /Wallet: 1AM/.test(msg), msg.replace(/\n/g, ' / '));
+      await ctx.close();
+    }
+    {
+      const balanced = [await built(Date.now() + 120_000)];
+      const { ctx, page } = await runSetup(balanced, ['ok'], 1);
+      const notice = page.getByTestId('wait-notice');
+      const shown = await notice.waitFor({ timeout: 30000 }).then(() => true, () => false);
+      const text = shown ? (await notice.textContent()) ?? '' : '';
+      check('"transaction already pending" shows a retry countdown', shown && /previous transaction pending/.test(text) && /Retrying in/.test(text), text);
+      await page.waitForFunction(() => window.__calls.submit.length >= 1, null, { timeout: 70000 }).catch(() => {});
+      const calls = await page.evaluate(() => window.__calls);
+      check('balancing retried automatically after the pending answer, then submitted', calls.balance.length === 2 && calls.submit.length === 1, `balance ${calls.balance.length}, submit ${calls.submit.length}`);
       await ctx.close();
     }
   }

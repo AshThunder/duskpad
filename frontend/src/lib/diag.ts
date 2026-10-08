@@ -8,19 +8,23 @@ import { useSyncExternalStore } from 'react';
 import type { ProofReport } from '@duskpad/sdk';
 
 export interface FeeWindow { attempt: number; expiresAt: number | null; balancedAt: number; submitted: boolean; rebalanceReason?: string }
+export interface WaitInfo { reason: 'previous-tx' | 'wallet-pending'; since: number; retryAt?: number; retry?: number }
 export interface Diag {
   wallet: string | null;
+  walletKind: string | null;
+  /** Set while DuskPad waits for an earlier transaction before asking the wallet to balance. */
+  wait: WaitInfo | null;
   indexer: string | null;
   lastProof: ProofReport | null;
   fee: FeeWindow | null;
 }
 
-let state: Diag = { wallet: null, indexer: null, lastProof: null, fee: null };
+let state: Diag = { wallet: null, walletKind: null, wait: null, indexer: null, lastProof: null, fee: null };
 const subs = new Set<() => void>();
 
 export function getDiag(): Diag { return state; }
 export function setDiag(patch: Partial<Diag>) { state = { ...state, ...patch }; subs.forEach((f) => f()); }
-export function resetDiag() { setDiag({ wallet: null, indexer: null, lastProof: null, fee: null }); }
+export function resetDiag() { setDiag({ wallet: null, walletKind: null, wait: null, indexer: null, lastProof: null, fee: null }); }
 function subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; }
 export function useDiag(): Diag { return useSyncExternalStore(subscribe, getDiag, getDiag); }
 

@@ -160,7 +160,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         },
       };
       sessionRef.current = s;
-      setDiag({ wallet: `${o.name}${s.caps.apiVersion ? ` (API ${s.caps.apiVersion})` : ''}`, indexer: `${endpoints.indexer} [${endpoints.source?.indexer ?? 'app'}]`, lastProof: null, fee: null });
+      setDiag({ walletKind: o.kind, wait: null, wallet: `${o.name}${s.caps.apiVersion ? ` (API ${s.caps.apiVersion})` : ''}`, indexer: `${endpoints.indexer} [${endpoints.source?.indexer ?? 'app'}]`, lastProof: null, fee: null });
       setSession(s);
       localStorage.setItem('duskpad.lastWallet', o.key);
       void refreshBalances();

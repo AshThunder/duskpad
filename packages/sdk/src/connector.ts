@@ -123,13 +123,30 @@ export function isExpiredTxError(e: unknown): boolean {
   return false;
 }
 
+/**
+ * True when the wallet refused to balance because an earlier transaction is still pending. 1AM maps
+ * ProofStation's PENDING_TRANSACTION answer to "A transaction is already pending. Wait for it to
+ * confirm or expire before requesting another." (sponsored DUST allows one pending tx per wallet).
+ */
+export function isPendingTxError(e: unknown): boolean {
+  let x: any = e;
+  for (let i = 0; x && i < 6; i++) {
+    const m = `${x.message ?? ''} ${x.reason ?? ''} ${typeof x === 'string' ? x : ''}`;
+    if (/PENDING_TRANSACTION|(?:transaction|balance)[^|\n]{0,40}already pending/i.test(m)) return true;
+    x = x.cause;
+  }
+  return false;
+}
+
 export interface BalanceEvents {
   /** The wallet returned a balanced transaction; `feeExpiresAt` is its earliest intent TTL (ms). */
   onBalanced?(info: { attempt: number; feeExpiresAt: number | null }): void;
   /** The balanced transaction expired (before submit, or the node rejected it); re-balancing now. */
   onRebalance?(info: { attempt: number; reason: 'expired-before-submit' | 'node-rejected-expired' }): void;
   /** The wallet accepted the transaction for broadcast. */
-  onSubmitted?(info: { attempt: number }): void;
+  onSubmitted?(info: { attempt: number; txId: string }): void;
+  /** The wallet still has an earlier transaction pending; balancing is retried at `retryAt` (ms). */
+  onWaitPending?(info: { retry: number; retryAt: number }): void;
 }
 
 export interface SubmitOptions {
@@ -138,6 +155,12 @@ export interface SubmitOptions {
   /** Re-balance before submitting if less than this much fee window is left (default 3 s). */
   minWindowMs?: number;
   now?: () => number;
+  /** Awaited before every balance request, e.g. to let the previous transaction confirm first. */
+  beforeBalance?: () => Promise<void>;
+  /** Retries when the wallet answers "a transaction is already pending" (default 3, 30 s apart). */
+  pendingRetries?: number;
+  pendingDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 interface BalancedRecord { unsealedHex: string; balancedHex: string; feeExpiresAt: number | null; attempt: number }
@@ -159,12 +182,24 @@ export function connectorWalletProviders(api: ConnectorLike, keys: ConnectorKeys
   const maxRebalances = opts.maxRebalances ?? 2;
   const minWindowMs = opts.minWindowMs ?? 3_000;
   const now = opts.now ?? Date.now;
+  const pendingRetries = opts.pendingRetries ?? 3;
+  const pendingDelayMs = opts.pendingDelayMs ?? 30_000;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const records = new WeakMap<object, BalancedRecord>();
 
   const balance = async (unsealedHex: string, attempt: number) => {
     // 1AM routes this through ProofStation, which adds the DUST fee (sponsorship);
     // Lace and the dev wallet pay it from the user's own DUST.
-    const r = await api.balanceUnsealedTransaction(unsealedHex);
+    await opts.beforeBalance?.();
+    let r: { tx: string } | undefined;
+    for (let retry = 1; ; retry++) {
+      try { r = await api.balanceUnsealedTransaction(unsealedHex); break; }
+      catch (e) {
+        if (!isPendingTxError(e) || isRejection(e) || retry > pendingRetries) throw e;
+        events.onWaitPending?.({ retry, retryAt: now() + pendingDelayMs });
+        await sleep(pendingDelayMs);
+      }
+    }
     if (!r?.tx || typeof r.tx !== 'string') throw new Error('wallet returned no transaction');
     const tx = Transaction.deserialize('signature', 'proof', 'binding', fromHex(r.tx.replace(/^0x/i, '')));
     const rec: BalancedRecord = { unsealedHex, balancedHex: r.tx, feeExpiresAt: earliestTtl(tx), attempt };
@@ -201,8 +236,9 @@ export function connectorWalletProviders(api: ConnectorLike, keys: ConnectorKeys
           }
           try {
             const r: any = await api.submitTransaction(rec ? rec.balancedHex : toHex(cur.serialize()));
-            events.onSubmitted?.({ attempt: rec?.attempt ?? 1 });
-            return idOf(cur, r);
+            const id = idOf(cur, r);
+            events.onSubmitted?.({ attempt: rec?.attempt ?? 1, txId: String(id) });
+            return id;
           } catch (e) {
             if (!rec || !isExpiredTxError(e) || isRejection(e) || rebalances >= maxRebalances) throw e;
             rebalances++;

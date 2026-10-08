@@ -50,6 +50,8 @@ export function PrivacyStepper({ action, steps, error, compact = false }: { acti
           </li>
         ))}
       </ol>
+      {!error && <WaitNotice />}
+      {!error && <SponsorNotice action={action} active={steps[active]?.id} />}
       {!error && <FeeWindowNotice active={steps[active]?.id} />}
       {error && (
         <div className="mt-2 p-4 bg-error-container text-on-error-container rounded-2xl flex items-start gap-2 text-[14px]" data-testid="tx-error">
@@ -105,6 +107,43 @@ function FeeWindowNotice({ active }: { active?: string }) {
         {left === null ? null : left > 0
           ? <>The fee on this transaction is valid for <b>{left} s</b> more.</>
           : <>The fee window has closed; DuskPad will ask the wallet to balance it again.</>}
+      </span>
+    </div>
+  );
+}
+
+/** Shown while DuskPad holds the balance request until the wallet's previous transaction clears. */
+function WaitNotice() {
+  const { wait } = useDiag();
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(id); }, []);
+  if (!wait) return null;
+  const secs = Math.max(0, Math.floor(((wait.retryAt ?? now) - now) / 1000));
+  return (
+    <div className="mt-2 p-4 bg-primary-fixed rounded-2xl flex items-start gap-2 text-[14px]" data-testid="wait-notice">
+      <Loader2 size={20} className="shrink-0 mt-0.5 spin" />
+      <span>
+        {wait.reason === 'previous-tx'
+          ? <>Waiting for your previous transaction to confirm before asking the wallet to balance this one ({Math.floor((now - wait.since) / 1000)} s).</>
+          : <>The wallet still has your previous transaction pending (1AM&apos;s DUST sponsor allows one at a time). Retrying in <b>{secs} s</b> (retry {wait.retry} of 3); approve <b>Balance &amp; Sign</b> again when 1AM asks.</>}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * 1AM cannot sponsor DUST when the wallet itself must add shielded inputs (buying a ticket spends your
+ * tUSD): its sponsored path only accepts transactions that need no balancing besides the fee.
+ */
+function SponsorNotice({ action, active }: { action: Action; active?: string }) {
+  const { walletKind } = useDiag();
+  if (walletKind !== '1am' || action !== 'buy' || (active !== 'prove' && active !== 'balance' && active !== 'execute')) return null;
+  return (
+    <div className="mt-2 p-4 bg-primary-fixed rounded-2xl flex items-start gap-2 text-[14px]" data-testid="sponsor-notice">
+      <Cpu size={20} className="shrink-0 mt-0.5" />
+      <span>
+        Buying spends your shielded tUSD, which 1AM&apos;s DUST sponsor cannot balance. When 1AM shows
+        <b> &ldquo;Dust Sponsorship Failed&rdquo;</b>, choose <b>Pay with My Dust</b> (this needs some DUST in the wallet).
       </span>
     </div>
   );

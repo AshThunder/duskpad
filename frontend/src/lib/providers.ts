@@ -94,6 +94,29 @@ export function memoryPrivateStateProvider() {
   };
 }
 
+/**
+ * The last transaction this browser submitted, shared by all contract kinds. Before the wallet is
+ * asked to balance the next one, DuskPad waits (up to 3 minutes) for it to show up on the indexer:
+ * 1AM's DUST sponsor refuses a new transaction while the previous one is pending.
+ */
+let lastSubmitted: { id: string; at: number } | null = null;
+const PREVIOUS_TX_WAIT_MS = 180_000;
+
+async function waitForPrevious(pdp: any) {
+  const prev = lastSubmitted;
+  if (!prev || Date.now() - prev.at > PREVIOUS_TX_WAIT_MS) return;
+  setDiag({ wait: { reason: 'previous-tx', since: Date.now() } });
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => pdp.watchForTxData(prev.id)).catch(() => undefined),
+      new Promise((r) => setTimeout(r, Math.max(0, prev.at + PREVIOUS_TX_WAIT_MS - Date.now()))),
+    ]);
+  } finally {
+    if (lastSubmitted === prev) lastSubmitted = null;
+    setDiag({ wait: null });
+  }
+}
+
 export interface WalletKeys { coinPublicKey: string; encryptionPublicKey: string }
 export type ProvingMode = 'wallet' | 'proof-server';
 
@@ -123,17 +146,22 @@ export async function walletProviders(api: ConnectedAPI, keys: WalletKeys, ep: E
   });
   const fee = (patch: Partial<NonNullable<ReturnType<typeof getDiag>['fee']>>) =>
     setDiag({ fee: { attempt: 1, expiresAt: null, balancedAt: Date.now(), submitted: false, ...(getDiag().fee ?? {}), ...patch } });
+  const pdp = publicDataProvider(ep);
   const wp = connectorWalletProviders(api as any, keys, {
-    onBalanced: ({ attempt, feeExpiresAt }) => fee({ attempt, expiresAt: feeExpiresAt, balancedAt: Date.now(), submitted: false, rebalanceReason: undefined }),
+    onBalanced: ({ attempt, feeExpiresAt }) => { setDiag({ wait: null }); fee({ attempt, expiresAt: feeExpiresAt, balancedAt: Date.now(), submitted: false, rebalanceReason: undefined }); },
     onRebalance: ({ attempt, reason }) => {
       console.warn(`[duskpad] balanced transaction expired (${reason}); re-balancing, attempt ${attempt}`);
       fee({ attempt, expiresAt: null, submitted: false, rebalanceReason: reason });
     },
-    onSubmitted: () => fee({ submitted: true }),
-  });
+    onSubmitted: ({ txId }) => { lastSubmitted = { id: txId, at: Date.now() }; setDiag({ wait: null }); fee({ submitted: true }); },
+    onWaitPending: ({ retry, retryAt }) => {
+      console.warn(`[duskpad] wallet says a transaction is already pending; retry ${retry} at ${new Date(retryAt).toLocaleTimeString()}`);
+      setDiag({ wait: { reason: 'wallet-pending', since: Date.now(), retry, retryAt } });
+    },
+  }, { beforeBalance: () => waitForPrevious(pdp) });
   return {
     privateStateProvider: memoryPrivateStateProvider(),
-    publicDataProvider: publicDataProvider(ep),
+    publicDataProvider: pdp,
     zkConfigProvider: zk,
     proofProvider,
     ...wp,

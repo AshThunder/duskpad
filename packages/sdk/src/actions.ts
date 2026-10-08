@@ -164,6 +164,7 @@ export function explainError(e: unknown): string {
   let x: any = e;
   for (let i = 0; x && i < 5; i++) {
     // DApp Connector errors carry { code, reason } (1AM: code 'Rejected'; Lace: ErrorCodes.Rejected).
+    if (/declined to pay dust fee/i.test(String(x.reason ?? x.message ?? ''))) return '1AM could not sponsor the DUST fee and "Pay with My Dust" was declined. Try again and choose "Pay with My Dust" (the wallet needs some DUST), or use Lace.';
     if (x.code === 'Rejected' || x.code === -3) return 'The wallet rejected the request.';
     parts.push(String(x.message ?? x.reason ?? x.info ?? x));
     x = x.cause;
@@ -171,6 +172,8 @@ export function explainError(e: unknown): string {
   const all = parts.join(' | ');
   const known: [RegExp, string][] = [
     [/failed assert: ([^|\n]+)/i, '$1'],
+    [/PENDING_TRANSACTION|(?:transaction|balance)[^|\n]{0,40}already pending/i, 'The wallet still has your previous transaction pending (1AM\'s DUST sponsor allows one at a time). DuskPad waited and retried; wait until the previous transaction confirms (about a minute) and try again.'],
+    [/Unable to prepare unsealed DApp transaction for sponsored DUST|could not sponsor/i, '1AM could not sponsor the DUST fee for this transaction. Choose "Pay with My Dust" in 1AM (the wallet needs some DUST), or turn off Dust Sponsorship in 1AM Settings.'],
     [/Custom error:\s*182\b|IntentTtlExpired/i, 'The network refused the transaction because its fee window had already closed (Midnight error 182: intent TTL expired). With 1AM, the sponsored DUST fee is only valid for about 40 seconds after balancing, so approve the "Submit Transaction" prompt right away, or turn off Dust Sponsorship in 1AM Settings so the fee comes from your own DUST.'],
     [/Custom error:\s*171\b|OutOfDustValidityWindow/i, 'The DUST fee was built against a stale chain time (Midnight error 171). The wallet\'s indexer is behind; wait a minute and try again.'],
     [/Custom error:\s*138\b|BalanceCheckOverspend/i, 'The transaction does not pay enough DUST for its fee (Midnight error 138). Wait for DUST to accrue or turn on sponsorship, then try again.'],

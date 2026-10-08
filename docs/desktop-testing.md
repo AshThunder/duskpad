@@ -100,9 +100,36 @@ What DuskPad does about it:
 If you are slow on the prompts, or want to avoid the window entirely and the wallet has its own DUST,
 turn off **Settings → Dust Sponsorship** in 1AM: its own fee intent then has a 30-minute TTL.
 
+## Buying with 1AM: choose "Pay with My Dust"
+
+1AM shows **"Dust Sponsorship Failed: Unable to prepare unsealed DApp transaction for sponsored DUST"** on
+every ticket purchase. In 1AM 6.3.24 the sponsored path (`balanceUnsealedTransaction` → sign →
+`balanceUnboundTransaction` with token kinds `["shielded"]`) throws exactly this error whenever the wallet
+has to add a balancing transaction of its own, that is, whenever the wallet must contribute coins. A
+purchase pays the sale in shielded tUSD from the buyer's wallet, so 1AM must add shielded inputs and change
+(which it then has to prove itself); only transactions that need nothing from the wallet except the fee can
+be sponsored. Deploys and mints are confirmed sponsorable. Finalize, refund, claim, withdraw and collect fee
+should be too, because the contract pays out and the wallet adds no coins, but they have not been tried with
+1AM yet; if one of them shows the same dialog, the same answer applies. This cannot be changed on the
+DApp side without the contract taking the buyer's coins some other way, and coins can only leave a wallet
+through the wallet's own spends.
+
+Choose **Pay with My Dust** in that 1AM dialog. 1AM then balances with the wallet's own DUST, proving locally,
+and the purchase goes through. This needs DUST in the wallet. The buy stepper shows this note whenever the
+connected wallet is 1AM.
+
+## "A transaction is already pending"
+
+This message comes from 1AM, not DuskPad: 1AM turns ProofStation's `PENDING_TRANSACTION` answer into
+"A transaction is already pending. Wait for it to confirm or expire before requesting another." The sponsor
+allows one pending sponsored transaction per wallet. DuskPad now (1) waits, before asking the wallet to balance,
+until the previous transaction it submitted is on the indexer (up to 3 minutes; the stepper says so), and
+(2) if 1AM still answers "already pending", retries balancing up to 3 times, 30 s apart, with a countdown.
+Each retry shows 1AM's **Balance & Sign** prompt again.
+
 ## Known risks to watch
 
-- **Buying with 1AM**: `buyTicket` spends shielded tUSD. 1AM documents `balanceUnsealedTransaction` as adding sponsored DUST; whether it also adds the user's shielded tUSD inputs has not been observed. If step 9 fails with a balance error, report the exact message (Dashboard card + stepper).
+- **Buying with 1AM**: confirmed working on Preprod (1AM adds the shielded tUSD inputs; 5000 → 4900). The DUST fee cannot be sponsored, see below.
 - **Lace builds differ**: older Lace releases may lack `getProvingProvider`/`signData` (handled by the proof-server fallback) and default to an indexer URL that is gone (handled by the probe).
 - **Wallet timeouts**: 1AM gives up on a request after 5 minutes; the app then proves on the proof server.
 

@@ -5,7 +5,7 @@
 // re-balanced and re-submitted, and the wallet must always get back the exact hex it returned.
 import { describe, it, expect } from 'vitest';
 import { ContractDeploy, ContractState, CostModel, Intent, Transaction } from '@midnight-ntwrk/ledger-v8';
-import { connectorWalletProviders, earliestTtl, explainError, isExpiredTxError, proofsNeeded, withProofReport, toHex } from '../src/index';
+import { connectorWalletProviders, earliestTtl, explainError, isExpiredTxError, isPendingTxError, proofsNeeded, withProofReport, toHex } from '../src/index';
 
 const noProver = { check: async () => { throw new Error('no circuits'); }, prove: async () => { throw new Error('no circuits'); } };
 
@@ -99,5 +99,35 @@ describe('1AM sponsored fee window (node error 182)', () => {
     const pp = withProofReport({ proveTx: async (tx: any) => tx }, '1AM in-wallet prover', (r) => reports.push(r));
     await pp.proveTx(unproven);
     expect(reports[0]).toMatchObject({ prover: '1AM in-wallet prover', proofs: 0, ok: true });
+  });
+
+  it('waits for the previous transaction, then retries when 1AM says one is already pending', async () => {
+    const PENDING = { code: 'InternalError', reason: 'A transaction is already pending. Wait for it to confirm or expire before requesting another.' };
+    expect(isPendingTxError(PENDING)).toBe(true);
+    expect(isPendingTxError({ reason: 'PENDING_TRANSACTION: sponsor busy' })).toBe(true);
+    expect(isPendingTxError(ERR_182)).toBe(false);
+    expect(explainError(PENDING)).toMatch(/previous transaction pending/);
+    expect(explainError({ reason: 'Unable to prepare unsealed DApp transaction for sponsored DUST' })).toMatch(/Pay with My Dust/);
+    expect(explainError({ code: 'Rejected', reason: 'User declined to pay dust fee' })).toMatch(/Pay with My Dust/);
+
+    const w = await fakeWallet([Date.now() + 60_000], [null]);
+    let fails = 2;
+    const inner = w.api.balanceUnsealedTransaction;
+    w.api.balanceUnsealedTransaction = async (hex: string) => { if (fails-- > 0) throw PENDING; return inner(hex); };
+    const log: string[] = [];
+    const slept: number[] = [];
+    const p = connectorWalletProviders(w.api, keys, {
+      onWaitPending: ({ retry }) => log.push(`wait:${retry}`),
+      onSubmitted: ({ txId }) => log.push(`submitted:${txId === w.txs[0].bound.identifiers()[0]}`),
+    }, { beforeBalance: async () => { log.push('gate'); }, pendingDelayMs: 1234, sleep: async (ms) => { slept.push(ms); } });
+    const { unproven } = await deployTx(Date.now() + 3_600_000);
+    await p.midnightProvider.submitTx(await p.walletProvider.balanceTx(unproven as any));
+    expect(log).toEqual(['gate', 'wait:1', 'wait:2', 'submitted:true']);
+    expect(slept).toEqual([1234, 1234]);
+
+    const w2 = await fakeWallet([Date.now() + 60_000], [null]);
+    w2.api.balanceUnsealedTransaction = async () => { throw PENDING; };
+    const p2 = connectorWalletProviders(w2.api, keys, {}, { pendingRetries: 3, sleep: async () => {} });
+    await expect(p2.walletProvider.balanceTx(unproven as any)).rejects.toBe(PENDING);
   });
 });
