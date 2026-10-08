@@ -180,18 +180,19 @@ Deploys on Preprod return once the transaction is submitted and confirm by polli
 - Wallet encodings differ, so the SDK normalises them: shielded keys as hex (dev wallets) or Bech32m (`mn_shield-cpk_…`, `mn_shield-epk_…`, per the v4 spec and Lace), cross-checked with the shielded address; balances as bigint, number or decimal string; DUST as `{ balance, cap }`; wallet errors with `code`/`reason` (a rejection never triggers a silent fallback).
 - **Dev wallets** (local only) implement the same interface over HTTP, using testkit-js `DAppConnectorWalletAdapter` on real headless wallets.
 - **Verified:** the DApp Connector code path (deploy, mint, private buy) in the e2e suite (W-1..W-3), every browser flow with dev wallets, and a headless Preprod smoke test with a stub extension that answers like 1AM/Lace (`node e2e/ui/preprod-smoke.mjs`: Bech32m keys, dead wallet indexer, missing proving provider, wrong network).
-- **Not yet verified:** the real 1AM and Lace extensions on Preprod, which need a person at a desktop browser. See [`docs/desktop-testing.md`](docs/desktop-testing.md).
+- **Verified with the real 1AM extension on Preprod (8 Oct 2026):** connect, tUSD setup, credential, mint, create sales, shielded buy, finalize both ways, refund, withdraw (97.5 tUSD to the creator, 2.5 tUSD fee), fee collection, both vesting tranches claimed, backup export, and the public report with on-chain activity. 1AM can't sponsor fees for buys (they spend the buyer's own tUSD), so choose "Pay with My Dust" when buying.
+- **Lace on Preprod:** connects and syncs via Blockfrost; DUST appears only after Lace finishes replaying Preprod's DUST history, which can take a couple of hours on a fresh sync. Its full checklist run is still pending. See [`docs/desktop-testing.md`](docs/desktop-testing.md).
 
 ## Tests
 
 | Suite | Command | What it covers | Result |
 |---|---|---|---|
 | Contract simulator | `npm test -w @duskpad/contracts` | 51 sale + 3 tUSD tests on the compiled contract, in-process (every assertion message, caps, phases, fee and tranche math, auditor records) | **54 / 54** |
-| SDK unit | `npm test -w @duskpad/sdk` | Credentials, derivations, backups (wrong passphrase, tampering), schedule math, address parsing, wallet-connector normalisation (Bech32m vs hex keys, balance encodings, DUST shape, rejection detection, prover fallback) | **21 / 21** |
+| SDK unit | `npm test -w @duskpad/sdk` | Credentials, derivations, backups (wrong passphrase, tampering), schedule math, address parsing, wallet-connector normalisation (Bech32m vs hex keys, balance encodings, DUST shape, rejection detection, prover fallback) | **31 / 31** |
 | API | `npm test -w @duskpad/api` | Mock issuer validation and signatures, registry validation, public-network registration guards | **7 / 7** |
 | End-to-end matrix | `npm run e2e` | The 44-row feasibility matrix reproduced on DuskPad's contracts plus 3 extras, real proofs and transactions on the local stack | **47 / 47** (44/44 matrix rows + 3 extras) |
 | Browser flow | `npm run e2e:ui` | Playwright drives the production build with dev wallets: 2 sales, credentials, 4 buys, cap and region checks, finalize both ways, refund, withdraw, fee collection, backup export/import, fresh-wallet claim, report, auditor view | **19 / 19** steps |
-| Preprod wallet smoke | `node e2e/ui/preprod-smoke.mjs` | The Preprod build with a stub extension that answers like 1AM/Lace (no signing): wallet order, Bech32m keys, dead wallet indexer replaced, proof-server choice, DUST display, setup page, wrong-network error | **10 / 10** |
+| Preprod wallet smoke | `node e2e/ui/preprod-smoke.mjs` | The Preprod build with a stub extension that answers like 1AM/Lace (no signing): wallet order, Bech32m keys, dead wallet indexer replaced, proof-server choice, DUST display, setup page, wrong-network error, report activity | **19 / 19** |
 
 The latest e2e report is in [`e2e/reports/LATEST.md`](e2e/reports/LATEST.md) (raw: `LATEST.json`); the browser-flow results are in `e2e/reports/UI-LATEST.json`. The browser flow is resumable (`RESUME=1 npm run e2e:ui`) because each persona keeps a persistent browser profile holding its private vault.
 
