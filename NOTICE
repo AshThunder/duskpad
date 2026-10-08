@@ -1,0 +1,12 @@
+DuskPad
+Copyright 2026 Chris Gold
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It builds on the Midnight Network SDKs (Compact compiler and runtime, Midnight.js,
+wallet SDK, DApp Connector API), which are distributed under their own licenses by
+their respective authors. Docker images referenced in docker/stack.yml are published by
+Midnight Foundation / Shielded Technologies under their own terms.
+
+The "mock KYC issuer" in services/api is a demonstration only. It performs no identity
+verification and must not be used to gate a real sale.

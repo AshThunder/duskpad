@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'build/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts-and-unit-tests:
+    name: Compile contracts (Compact 0.31.1) and run simulator + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install the Compact toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch Compact compiler 0.31.1
+        run: compact update 0.31.1 && compact compile +0.31.1 --version
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Full compile (circuits + proving keys) so CI proves the ZK build works, not just type-checking.
+      - name: Compile contracts
+        run: npm run compile
+
+      - name: Simulator tests (contracts)
+        run: npm run test -w @duskpad/contracts
+
+      - name: SDK unit tests
+        run: npm run test -w @duskpad/sdk
+
+      - name: Typecheck SDK
+        run: npm run typecheck -w @duskpad/sdk
+
+      - name: Build frontend
+        run: npm run build -w @duskpad/frontend

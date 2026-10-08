@@ -1,0 +1,15 @@
+node_modules/
+dist/
+contracts/managed/
+frontend/public/zk/
+*.log
+.env
+.env.local
+services/api/data/*.json
+!services/api/data/.gitkeep
+e2e/reports/run-*
+e2e/.pstate/
+.dev-wallet/
+test-results/
+playwright-report/
+.DS_Store
