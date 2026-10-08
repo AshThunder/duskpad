@@ -1,3 +1,5 @@
+# GitHub Actions workflow. Move to .github/workflows/ci.yml to activate (the push token used
+# while building lacked the `workflow` scope, so it could not be committed there directly).
 name: CI
 
 on:

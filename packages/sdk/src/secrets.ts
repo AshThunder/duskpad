@@ -48,6 +48,8 @@ export interface VaultData {
   credential?: CredentialJSON;
   tickets: TicketRecord[];
   ownedSales: OwnedSale[];
+  /** Auditor secret keys this vault generated for sales with disclosure enabled (demo convenience). */
+  auditorKeys?: { sale: string; sk: string }[];
   activity: { at: number; kind: string; sale?: string; txHash?: string; detail?: string }[];
 }
 

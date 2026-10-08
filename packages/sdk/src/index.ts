@@ -10,3 +10,4 @@ export * from './report.js';
 export * from './privacy.js';
 export * from './audit.js';
 export * from './format.js';
+export * from './address.js';

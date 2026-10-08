@@ -99,3 +99,17 @@ describe('errors and privacy table', () => {
     for (const a of ['buy', 'refund', 'claim', 'withdraw', 'collectFee', 'deploy']) expect(VISIBILITY.find((v) => v.action === a)).toBeDefined();
   });
 });
+
+import { parseShieldedAddress } from '../src/address';
+describe('shielded address parsing', () => {
+  const addr = 'mn_shield-addr_undeployed17jrde8jwl92xnc9yxt4wuuk90eay73y3sgrfkh4dpz6sf700rduzjmn4dv093ylpa3tpc5r0rspv9f0n9u9ux3hfj7gwja2pct26j3qf068ud';
+  it('splits coin and encryption keys (values cross-checked against the wallet\'s getShieldedAddresses)', () => {
+    const k = parseShieldedAddress(addr, 'undeployed');
+    expect(k.coinPublicKey).toBe('f486dc9e4ef95469e0a432eaee72c57e7a4f449182069b5ead08b504f9ef1b78');
+    expect(k.encryptionPublicKey).toBe('296e756b1e5893e1ec561c506f1c02c2a5f32f0bc346e99790e97541c2d5a944');
+  });
+  it('rejects other networks and garbage', () => {
+    expect(() => parseShieldedAddress(addr, 'preprod')).toThrow(/expected preprod/);
+    expect(() => parseShieldedAddress('hello')).toThrow();
+  });
+});
