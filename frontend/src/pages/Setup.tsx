@@ -12,6 +12,7 @@ import { adminKeyOf, deployTusd, derivePlatformSecret, fromHex, pad32, toHex, wa
 import { useWallet } from '../state/WalletContext';
 import { useApp } from '../state/AppContext';
 import { useTxFlow } from '../lib/txflow';
+import { describeProof, useDiag } from '../lib/diag';
 import { api } from '../lib/api';
 import { IS_LOCAL, NETWORK, NETWORK_LABEL as LABELS, PLATFORM_MASTER_KEY } from '../lib/config';
 
@@ -28,6 +29,7 @@ const random32 = () => crypto.getRandomValues(new Uint8Array(32));
 
 export function Setup() {
   const { session, proving } = useWallet();
+  const diag = useDiag();
   const { network, networkError, reload } = useApp();
   const flow = useTxFlow();
   const [walletOpen, setWalletOpen] = useState(false);
@@ -142,6 +144,14 @@ export function Setup() {
 
           <section className="card p-7 space-y-4">
             <h2 className="font-display text-[20px] font-bold">3. Deploy tUSD and register</h2>
+            {session?.option.kind === '1am' && (
+              <p className="text-[14px] text-on-surface-variant" data-testid="setup-1am-hint">
+                1AM opens two prompts: <b>Balance &amp; Sign</b>, then <b>Submit Transaction</b>. Approve the second one straight away: the
+                sponsored DUST fee is only valid for about 40 seconds. If it lapses, DuskPad asks 1AM to balance again (up to two more
+                times, same contract address). If this wallet has its own DUST you can instead turn off <i>Settings → Dust Sponsorship</i> in 1AM,
+                which gives a 30-minute window.
+              </p>
+            )}
             {pending && !flow.running && (
               <Notice>A tUSD contract was already submitted from this browser: <Hex value={pending} />. Register it instead of deploying again.
                 <div className="mt-2 flex gap-2"><button className="btn-dark !py-2" disabled={!session || !feeKey || !!busy} onClick={() => void retryRegister()} data-testid="setup-register">Register</button>
@@ -151,7 +161,7 @@ export function Setup() {
             {flow.action && <PrivacyStepper action="setup" steps={flow.steps} error={flow.error} compact />}
             {busy && <p className="text-[14px] flex items-center gap-2"><Spinner /> {busy}…</p>}
             {err && <Notice tone="error">{err}</Notice>}
-            {proving && <p className="label-mono text-on-surface-variant">Proving: {proving.mode === 'wallet' ? 'in the wallet' : `proof server${proving.why ? ` (${proving.why})` : ''}`}</p>}
+            {(diag.lastProof || proving) && <p className="label-mono text-on-surface-variant">Last proof: {diag.lastProof ? describeProof(diag.lastProof) : proving?.mode === 'wallet' ? 'wallet prover ready' : `proof server${proving?.why ? ` (${proving.why})` : ''}`} · Indexer: {session?.endpoints.indexer.replace(/^https?:\/\//, '')}</p>}
             {!pending && (
               <button className="btn-dark" disabled={!session || !feeKey || flow.running || !!busy} onClick={() => void deployAndRegister()} data-testid="setup-deploy">
                 <Rocket size={16} /> Deploy tUSD on {NETWORK_LABEL}

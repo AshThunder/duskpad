@@ -96,27 +96,120 @@ export function normalizeDust(d: unknown): { balance: bigint; cap: bigint | null
   return { balance: toBig(d), cap: null };
 }
 
-export function connectorWalletProviders(api: ConnectorLike, keys: ConnectorKeys) {
+/** Earliest intent TTL (ms since epoch) in a transaction, or null if it has no intents. */
+export function earliestTtl(tx: any): number | null {
+  let min: number | null = null;
+  try {
+    for (const [, intent] of tx?.intents ?? new Map()) {
+      const t = intent?.ttl instanceof Date ? intent.ttl.getTime() : Number(intent?.ttl);
+      if (Number.isFinite(t)) min = min === null ? t : Math.min(min, t);
+    }
+  } catch { /* not a ledger transaction */ }
+  return min;
+}
+
+/**
+ * True when the node refused a transaction because an intent's TTL had passed. On Midnight node
+ * 1.0.x this is "1010: Invalid Transaction: Custom error: 182" (MalformedError::
+ * TransactionApplicationError, later split into IntentTtlExpired/IntentAlreadyExists).
+ */
+export function isExpiredTxError(e: unknown): boolean {
+  let x: any = e;
+  for (let i = 0; x && i < 6; i++) {
+    const m = `${x.message ?? ''} ${x.reason ?? ''} ${typeof x === 'string' ? x : ''}`;
+    if (/Custom error:\s*182\b|IntentTtlExpired|ttl[^|]{0,40}expired/i.test(m)) return true;
+    x = x.cause;
+  }
+  return false;
+}
+
+export interface BalanceEvents {
+  /** The wallet returned a balanced transaction; `feeExpiresAt` is its earliest intent TTL (ms). */
+  onBalanced?(info: { attempt: number; feeExpiresAt: number | null }): void;
+  /** The balanced transaction expired (before submit, or the node rejected it); re-balancing now. */
+  onRebalance?(info: { attempt: number; reason: 'expired-before-submit' | 'node-rejected-expired' }): void;
+  /** The wallet accepted the transaction for broadcast. */
+  onSubmitted?(info: { attempt: number }): void;
+}
+
+export interface SubmitOptions {
+  /** How many times an expired balanced transaction is re-balanced and re-submitted (default 2). */
+  maxRebalances?: number;
+  /** Re-balance before submitting if less than this much fee window is left (default 3 s). */
+  minWindowMs?: number;
+  now?: () => number;
+}
+
+interface BalancedRecord { unsealedHex: string; balancedHex: string; feeExpiresAt: number | null; attempt: number }
+
+/**
+ * Wallet + midnight providers over a DApp Connector.
+ *
+ * 1AM's sponsored DUST (ProofStation) adds a fee intent whose TTL is only about 45 s after the
+ * sponsor's view of the chain tip, and 1AM asks the user to approve "Submit Transaction" in a
+ * second prompt. If that approval takes longer, the node rejects the transaction with custom error
+ * 182. So the submit step:
+ *  * hands the wallet the exact hex it returned from balancing (1AM looks the sponsored record up by
+ *    that hex), never a re-serialization;
+ *  * re-balances first if the fee window has already closed;
+ *  * re-balances and re-submits (up to `maxRebalances` times) if the node rejects it as expired.
+ * Re-balancing re-uses the same unsealed transaction, so a deploy keeps its contract address.
+ */
+export function connectorWalletProviders(api: ConnectorLike, keys: ConnectorKeys, events: BalanceEvents = {}, opts: SubmitOptions = {}) {
+  const maxRebalances = opts.maxRebalances ?? 2;
+  const minWindowMs = opts.minWindowMs ?? 3_000;
+  const now = opts.now ?? Date.now;
+  const records = new WeakMap<object, BalancedRecord>();
+
+  const balance = async (unsealedHex: string, attempt: number) => {
+    // 1AM routes this through ProofStation, which adds the DUST fee (sponsorship);
+    // Lace and the dev wallet pay it from the user's own DUST.
+    const r = await api.balanceUnsealedTransaction(unsealedHex);
+    if (!r?.tx || typeof r.tx !== 'string') throw new Error('wallet returned no transaction');
+    const tx = Transaction.deserialize('signature', 'proof', 'binding', fromHex(r.tx.replace(/^0x/i, '')));
+    const rec: BalancedRecord = { unsealedHex, balancedHex: r.tx, feeExpiresAt: earliestTtl(tx), attempt };
+    records.set(tx as object, rec);
+    events.onBalanced?.({ attempt, feeExpiresAt: rec.feeExpiresAt });
+    return { tx, rec };
+  };
+
+  const idOf = (tx: any, r: any) => {
+    // The spec returns void. The identifier of the finalized tx is what the indexer reports.
+    const own = tx.identifiers()[0];
+    if (own) return own;
+    if (typeof r === 'string' && r) return r;
+    return r?.transactionId ?? r?.txId ?? r?.id ?? own;
+  };
+
   return {
     walletProvider: {
       getCoinPublicKey: () => keys.coinPublicKey,
       getEncryptionPublicKey: () => keys.encryptionPublicKey,
-      balanceTx: async (tx: any) => {
-        // 1AM routes this through ProofStation, which adds the DUST fee (sponsorship);
-        // Lace and the dev wallet pay it from the user's own DUST.
-        const r = await api.balanceUnsealedTransaction(toHex(tx.serialize()));
-        if (!r?.tx || typeof r.tx !== 'string') throw new Error('wallet returned no transaction');
-        return Transaction.deserialize('signature', 'proof', 'binding', fromHex(r.tx));
-      },
+      balanceTx: async (tx: any) => (await balance(toHex(tx.serialize()), 1)).tx,
     },
     midnightProvider: {
       submitTx: async (tx: any) => {
-        const r: any = await api.submitTransaction(toHex(tx.serialize()));
-        // The spec returns void. The identifier of the finalized tx is what the indexer reports.
-        const own = tx.identifiers()[0];
-        if (own) return own;
-        if (typeof r === 'string' && r) return r;
-        return r?.transactionId ?? r?.txId ?? r?.id ?? own;
+        let cur: any = tx;
+        let rec = records.get(tx as object);
+        let rebalances = 0;
+        for (;;) {
+          if (rec && rec.feeExpiresAt !== null && rec.feeExpiresAt - now() < minWindowMs && rebalances < maxRebalances) {
+            rebalances++;
+            events.onRebalance?.({ attempt: rec.attempt + 1, reason: 'expired-before-submit' });
+            ({ tx: cur, rec } = await balance(rec.unsealedHex, rec.attempt + 1));
+            continue;
+          }
+          try {
+            const r: any = await api.submitTransaction(rec ? rec.balancedHex : toHex(cur.serialize()));
+            events.onSubmitted?.({ attempt: rec?.attempt ?? 1 });
+            return idOf(cur, r);
+          } catch (e) {
+            if (!rec || !isExpiredTxError(e) || isRejection(e) || rebalances >= maxRebalances) throw e;
+            rebalances++;
+            events.onRebalance?.({ attempt: rec.attempt + 1, reason: 'node-rejected-expired' });
+            ({ tx: cur, rec } = await balance(rec.unsealedHex, rec.attempt + 1));
+          }
+        }
       },
     },
   };
@@ -125,14 +218,53 @@ export function connectorWalletProviders(api: ConnectorLike, keys: ConnectorKeys
 /**
  * Ask the wallet to prove (1AM proves in-extension or via ProofStation; newer Lace builds proxy to
  * the proof server configured in Lace). Returns null if unsupported.
- * Uses `tx.prove(provingProvider, CostModel.initialCostModel())` directly, the only pattern
- * confirmed to work with 1AM's provingProvider (createProofProvider does not pass the CostModel).
+ * The wallet gets a KeyMaterialProvider (`zkConfigProvider.asKeyMaterialProvider()`, as 1AM's
+ * integration notes require) and the transaction is proved with
+ * `tx.prove(provingProvider, CostModel.initialCostModel())`, the pattern 1AM documents.
  */
-export async function connectorProofProvider(api: ConnectorLike, zkConfigProvider: unknown) {
+export async function connectorProofProvider(api: ConnectorLike, zkConfigProvider: any) {
   if (typeof api.getProvingProvider !== 'function') return null;
-  const pp = await api.getProvingProvider(zkConfigProvider);
+  const kmp = typeof zkConfigProvider?.asKeyMaterialProvider === 'function' ? zkConfigProvider.asKeyMaterialProvider() : zkConfigProvider;
+  const pp = await api.getProvingProvider(kmp);
   if (!pp) return null;
   return { proveTx: (tx: any) => tx.prove(pp, CostModel.initialCostModel()) };
+}
+
+/** Number of ZK proofs an unproven transaction needs (contract calls + zswap inputs/outputs), or null. */
+export function proofsNeeded(tx: any): number | null {
+  try {
+    let n = 0;
+    for (const [, intent] of tx?.intents ?? new Map()) {
+      // Only contract calls carry a proof (deploys and maintenance updates do not). Constructor names are
+      // minified in browser bundles, so look at the shape: calls have an entry point.
+      for (const a of intent?.actions ?? []) if (a?.entryPoint !== undefined) n++;
+    }
+    const offers = [tx?.guaranteedOffer, ...(tx?.fallibleOffer instanceof Map ? tx.fallibleOffer.values() : [])];
+    for (const o of offers) if (o) n += (o.inputs?.length ?? 0) + (o.outputs?.length ?? 0);
+    return n;
+  } catch { return null; }
+}
+
+export interface ProofReport { prover: string; proofs: number | null; ms: number; at: number; ok: boolean; error?: string }
+
+/** Wrap a proof provider so every proveTx reports which prover ran, how many proofs, and how long. */
+export function withProofReport<P extends { proveTx: (tx: any, cfg?: any) => Promise<any> }>(pp: P, prover: string, onReport?: (r: ProofReport) => void): P {
+  if (!onReport) return pp;
+  return {
+    ...pp,
+    proveTx: async (tx: any, cfg?: any) => {
+      const t0 = Date.now();
+      const proofs = proofsNeeded(tx);
+      try {
+        const r = await pp.proveTx(tx, cfg);
+        onReport({ prover, proofs, ms: Date.now() - t0, at: Date.now(), ok: true });
+        return r;
+      } catch (e: any) {
+        onReport({ prover, proofs, ms: Date.now() - t0, at: Date.now(), ok: false, error: String(e?.message ?? e?.reason ?? e).slice(0, 200) });
+        throw e;
+      }
+    },
+  };
 }
 
 /** True for errors that mean "the user said no", which must never trigger a silent fallback. */

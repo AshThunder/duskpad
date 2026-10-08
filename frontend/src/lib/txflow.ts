@@ -6,6 +6,7 @@
 // actually complete in the browser before the transaction is built.
 import { useCallback, useRef, useState } from 'react';
 import { explainError, type Action, type Stage, type TxResult } from '@duskpad/sdk';
+import { diagSuffix, setDiag } from './diag';
 
 export type StepStatus = 'pending' | 'active' | 'done' | 'error';
 export type Exposure = 'private' | 'public' | 'mixed';
@@ -75,6 +76,7 @@ export function useTxFlow() {
   const run = useCallback(async <T extends TxResult | { txHash: string }>(a: Action, fn: (onStage: (s: Stage) => void, markLocal: (id: string) => void) => Promise<T>): Promise<T | null> => {
     const defs = FLOWS[a] ?? [];
     setAction(a); setError(null); setResult(null); setRunning(true);
+    setDiag({ fee: null });
     set(defs.map((d, i) => ({ ...d, status: i === 0 ? 'active' : 'pending' })));
     const onStage = (s: Stage) => {
       if (s === 'done') { set(stepsRef.current.map((x) => ({ ...x, status: 'done' }))); return; }
@@ -90,7 +92,7 @@ export function useTxFlow() {
       setResult(r as TxResult);
       return r;
     } catch (e) {
-      const msg = explainError(e);
+      const msg = `${explainError(e)}\n${diagSuffix()}`;
       console.error(e);
       setError(msg);
       set(stepsRef.current.map((x) => (x.status === 'active' ? { ...x, status: 'error' } : x)));

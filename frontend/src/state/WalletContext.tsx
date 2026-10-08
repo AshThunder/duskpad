@@ -9,6 +9,7 @@ import { isRejection, normalizeBalances, normalizeDust, normalizeShieldedKeys } 
 import { NETWORK, NETWORK_LABEL, resolveWalletEndpoints, type Endpoints, type WalletConfiguration } from '../lib/config';
 import { installDevWallets, type DevAccount } from '../lib/devWallet';
 import { walletProviders, type ContractKind, type ProvingMode } from '../lib/providers';
+import { resetDiag, setDiag } from '../lib/diag';
 
 export type WalletKind = '1am' | 'lace' | 'dev' | 'other';
 export interface WalletOption { key: string; name: string; icon?: string; kind: WalletKind; role?: string; initial: any }
@@ -151,6 +152,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             cache.set(kind, walletProviders(capi, { coinPublicKey: keys.coinPublicKey, encryptionPublicKey: keys.encryptionPublicKey },
               endpoints, NETWORK, kind, {
                 useWalletProver: o.kind !== 'dev',
+                walletName: o.name,
                 onProvingMode: (m, why) => setProving({ mode: m, why: why ?? null }),
               }));
           }
@@ -158,6 +160,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         },
       };
       sessionRef.current = s;
+      setDiag({ wallet: `${o.name}${s.caps.apiVersion ? ` (API ${s.caps.apiVersion})` : ''}`, indexer: `${endpoints.indexer} [${endpoints.source?.indexer ?? 'app'}]`, lastProof: null, fee: null });
       setSession(s);
       localStorage.setItem('duskpad.lastWallet', o.key);
       void refreshBalances();
@@ -175,6 +178,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setBalances(null);
     setProving(null);
+    resetDiag();
     localStorage.removeItem('duskpad.lastWallet');
   }, []);
 

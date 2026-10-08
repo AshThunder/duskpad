@@ -14,6 +14,7 @@ import { useTxFlow } from '../lib/txflow';
 import { mintTusd } from '../lib/chain';
 import { useApp } from '../state/AppContext';
 import { useWallet } from '../state/WalletContext';
+import { describeProof, useDiag } from '../lib/diag';
 import { useVault } from '../state/VaultContext';
 import { PrivacyStepper } from '../components/PrivacyStepper';
 import { WalletModal } from '../components/WalletModal';
@@ -25,6 +26,7 @@ const NIGHT = '0'.repeat(64);
 export function Dashboard() {
   const { network } = useApp();
   const { session, balances, refreshBalances, proving } = useWallet();
+  const diag = useDiag();
   const vault = useVault();
   const { sales } = useSales();
   const { views, reload } = useSaleViews((sales ?? []).map((s) => s.address));
@@ -192,8 +194,8 @@ export function Dashboard() {
             <Row k="Wallet" v={`${session.option.name}${session.caps.apiVersion ? ` · API ${session.caps.apiVersion}` : ''}`} />
             <Row k="Network" v={NETWORK} />
             <Row k="Wallet proving" v={session.caps.getProvingProvider ? 'supported' : 'not offered'} />
-            <Row k="Last proof" v={proving ? (proving.mode === 'wallet' ? 'in the wallet' : 'proof server') : '—'} />
-            <Row k="Indexer" v={session.endpoints.source?.indexer ?? 'app'} />
+            <Row k="Last proof" v={describeProof(diag.lastProof)} />
+            <Row k="Indexer" v={`${session.endpoints.source?.indexer ?? 'app'} · ${session.endpoints.indexer.replace(/^https?:\/\//, '')}`} />
             <Row k="Proof server" v={`${session.endpoints.source?.prover ?? 'app'} · ${session.endpoints.prover.replace(/^https?:\/\//, '')}`} />
             {proving?.why && <p className="text-on-surface-variant break-words">Fallback reason: {proving.why}</p>}
           </section>

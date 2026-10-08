@@ -3,7 +3,9 @@
 //
 // "What's happening privately": a live view of a transaction's real pipeline stages, each tagged
 // with whether it happens on your device (private) or on the public chain.
-import { CheckCircle2, Circle, Cpu, Eye, EyeOff, Loader2, Radio, ShieldCheck, XCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CheckCircle2, Circle, Cpu, Eye, EyeOff, Loader2, Radio, ShieldCheck, Timer, XCircle } from 'lucide-react';
+import { useDiag } from '../lib/diag';
 import { visibilityOf, type Action } from '@duskpad/sdk';
 import type { Step } from '../lib/txflow';
 
@@ -48,9 +50,10 @@ export function PrivacyStepper({ action, steps, error, compact = false }: { acti
           </li>
         ))}
       </ol>
+      {!error && <FeeWindowNotice active={steps[active]?.id} />}
       {error && (
-        <div className="mt-2 p-4 bg-error-container text-on-error-container rounded-2xl flex items-start gap-2 text-[14px]">
-          <XCircle size={20} className="shrink-0 mt-0.5" /><span>{error}</span>
+        <div className="mt-2 p-4 bg-error-container text-on-error-container rounded-2xl flex items-start gap-2 text-[14px]" data-testid="tx-error">
+          <XCircle size={20} className="shrink-0 mt-0.5" /><span className="whitespace-pre-line break-words">{error}</span>
         </div>
       )}
       {!compact && vis && (
@@ -73,4 +76,36 @@ function ExposureTag({ e }: { e: Step['exposure'] }) {
   if (e === 'private') return <span className="pill bg-primary-fixed text-primary !py-0.5"><Cpu size={11} /> on your device</span>;
   if (e === 'public') return <span className="pill bg-ink text-terminal !py-0.5"><Radio size={11} /> public</span>;
   return <span className="pill bg-surface-high !py-0.5">mixed</span>;
+}
+
+/**
+ * While the wallet waits for "Submit Transaction" approval, show how long the balanced
+ * transaction's fee stays valid. 1AM's sponsored DUST fee lasts well under a minute.
+ */
+function FeeWindowNotice({ active }: { active?: string }) {
+  const { fee } = useDiag();
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(id); }, []);
+  if (!fee || fee.submitted || (active !== 'submit' && active !== 'balance')) return null;
+  if (active === 'balance') {
+    if (!fee.rebalanceReason) return null;
+    return (
+      <div className="mt-2 p-4 bg-primary-fixed rounded-2xl flex items-start gap-2 text-[14px]" data-testid="fee-window">
+        <Timer size={20} className="shrink-0 mt-0.5" />
+        <span>The previous fee window closed before the transaction reached the network, so the wallet is balancing it again (attempt {fee.attempt}). Approve <b>both</b> wallet prompts straight away.</span>
+      </div>
+    );
+  }
+  const left = fee.expiresAt === null ? null : Math.floor((fee.expiresAt - now) / 1000);
+  return (
+    <div className={`mt-2 p-4 rounded-2xl flex items-start gap-2 text-[14px] ${left !== null && left < 15 ? 'bg-error-container text-on-error-container' : 'bg-primary-fixed'}`} data-testid="fee-window">
+      <Timer size={20} className="shrink-0 mt-0.5" />
+      <span>
+        Approve <b>Submit Transaction</b> in your wallet now.{' '}
+        {left === null ? null : left > 0
+          ? <>The fee on this transaction is valid for <b>{left} s</b> more.</>
+          : <>The fee window has closed; DuskPad will ask the wallet to balance it again.</>}
+      </span>
+    </div>
+  );
 }

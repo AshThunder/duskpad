@@ -8,10 +8,11 @@ import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-p
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { ContractState } from '@midnight-ntwrk/compact-runtime';
 import { LedgerParameters, ZswapChainState } from '@midnight-ntwrk/ledger-v8';
-import { connectorProofProvider, connectorWalletProviders, proofProviderWithFallback } from '@duskpad/sdk';
+import { connectorProofProvider, connectorWalletProviders, proofProviderWithFallback, withProofReport, type ProofReport } from '@duskpad/sdk';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { fromHex } from './hex';
 import { IS_LOCAL, type Endpoints } from './config';
+import { getDiag, setDiag } from './diag';
 
 export type ContractKind = 'sale' | 'tusd';
 
@@ -102,26 +103,39 @@ export type ProvingMode = 'wallet' | 'proof-server';
  * `ep.prover` if the wallet lacks the method or its prover fails for a technical reason.
  */
 export async function walletProviders(api: ConnectedAPI, keys: WalletKeys, ep: Endpoints, networkId: string, kind: ContractKind,
-  opts: { useWalletProver: boolean; onProvingMode?: (m: ProvingMode, why?: string) => void }) {
+  opts: { useWalletProver: boolean; walletName?: string; onProvingMode?: (m: ProvingMode, why?: string) => void }) {
   setNetworkId(networkId as any);
   const zk = zkConfig(kind);
+  const walletName = opts.walletName ?? 'wallet';
   let walletProof: any = null;
   if (opts.useWalletProver) {
     try { walletProof = await connectorProofProvider(api as any, zk); }
     catch (e) { console.warn('[duskpad] wallet proving unavailable, using the proof server', e); }
   }
+  const report = (r: ProofReport) => setDiag({ lastProof: r });
   let server: any = null;
-  const serverProof = () => (server ??= httpClientProofProvider(ep.prover, zk));
+  const serverProof = () => (server ??= withProofReport(httpClientProofProvider(ep.prover, zk), `proof server ${ep.prover.replace(/^https?:\/\//, '')}`, report));
+  if (walletProof) walletProof = withProofReport(walletProof, `${walletName} in-wallet prover`, report);
   opts.onProvingMode?.(walletProof ? 'wallet' : 'proof-server', walletProof ? undefined : 'wallet has no getProvingProvider');
   const proofProvider = proofProviderWithFallback(walletProof, serverProof, (e) => {
     console.warn('[duskpad] wallet prover failed, retrying on the proof server', e);
     opts.onProvingMode?.('proof-server', String((e as any)?.message ?? e));
+  });
+  const fee = (patch: Partial<NonNullable<ReturnType<typeof getDiag>['fee']>>) =>
+    setDiag({ fee: { attempt: 1, expiresAt: null, balancedAt: Date.now(), submitted: false, ...(getDiag().fee ?? {}), ...patch } });
+  const wp = connectorWalletProviders(api as any, keys, {
+    onBalanced: ({ attempt, feeExpiresAt }) => fee({ attempt, expiresAt: feeExpiresAt, balancedAt: Date.now(), submitted: false, rebalanceReason: undefined }),
+    onRebalance: ({ attempt, reason }) => {
+      console.warn(`[duskpad] balanced transaction expired (${reason}); re-balancing, attempt ${attempt}`);
+      fee({ attempt, expiresAt: null, submitted: false, rebalanceReason: reason });
+    },
+    onSubmitted: () => fee({ submitted: true }),
   });
   return {
     privateStateProvider: memoryPrivateStateProvider(),
     publicDataProvider: publicDataProvider(ep),
     zkConfigProvider: zk,
     proofProvider,
-    ...connectorWalletProviders(api as any, keys),
+    ...wp,
   } as any;
 }

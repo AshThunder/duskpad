@@ -166,6 +166,8 @@ The Preprod build hides the dev wallets and talks to 1AM or Lace. Endpoints come
 
 **Test funds.** 1AM: none needed for fees (sponsored); tUSD is minted in the app. Lace (and 1AM if you prefer its own DUST): tNIGHT from https://faucet.preprod.midnight.network/ (Cloudflare Turnstile, which passed automatically in the box browser), then designate it for DUST in the wallet. Lace's proof server must be Local (`localhost:6300`, proof server 8.1.0 on the box).
 
+**1AM's sponsored fee window.** With Dust Sponsorship on, 1AM's ProofStation adds the DUST fee as an intent that is valid for only about 48 seconds, and 1AM asks for "Submit Transaction" in a second prompt. A late approval makes the node reject the transaction with `1010 … Custom error: 182` (expired intent TTL). DuskPad submits the wallet's balanced hex verbatim, shows a countdown while 1AM waits for approval, and on an expired window re-balances the same transaction and re-submits (up to twice). Details in [`docs/desktop-testing.md`](docs/desktop-testing.md#1ams-sponsored-fee-window-node-error-182).
+
 Deploys on Preprod return once the transaction is submitted and confirm by polling the indexer for the contract; the registry listing retries until the indexer sees it. Public-network contract-state queries use a direct `contractAction(address)` query (with the stock Midnight.js query as fallback). The full browser script is in [`docs/desktop-testing.md`](docs/desktop-testing.md).
 
 **Real wallets on the local node.** 1AM (6.3.24) and Lace both offer an "Undeployed" network on `localhost:8088/9944/6300`, which is this repo's local stack. Fund the wallet's `mn_addr_undeployed1…` address with `npm run fund:local -- <address>`, register DUST in the wallet, and use the local build on 4173.

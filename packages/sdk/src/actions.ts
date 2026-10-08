@@ -171,6 +171,10 @@ export function explainError(e: unknown): string {
   const all = parts.join(' | ');
   const known: [RegExp, string][] = [
     [/failed assert: ([^|\n]+)/i, '$1'],
+    [/Custom error:\s*182\b|IntentTtlExpired/i, 'The network refused the transaction because its fee window had already closed (Midnight error 182: intent TTL expired). With 1AM, the sponsored DUST fee is only valid for about 40 seconds after balancing, so approve the "Submit Transaction" prompt right away, or turn off Dust Sponsorship in 1AM Settings so the fee comes from your own DUST.'],
+    [/Custom error:\s*171\b|OutOfDustValidityWindow/i, 'The DUST fee was built against a stale chain time (Midnight error 171). The wallet\'s indexer is behind; wait a minute and try again.'],
+    [/Custom error:\s*138\b|BalanceCheckOverspend/i, 'The transaction does not pay enough DUST for its fee (Midnight error 138). Wait for DUST to accrue or turn on sponsorship, then try again.'],
+    [/Custom error:\s*174\b|MalformedContractDeploy/i, 'The node refused the contract deployment as malformed (Midnight error 174).'],
     [/Unable to resolve encryption public key/i, 'The payout address is missing its encryption key.'],
     [/BalanceCheckOverspend|\b138\b.*dust|could not balance dust|insufficient.*dust|Not enough dust/i, 'Your wallet has no spendable DUST for fees yet.'],
     [/insufficient (funds|balance)|Insufficient/i, 'Not enough shielded tUSD in this wallet.'],
@@ -184,5 +188,7 @@ export function explainError(e: unknown): string {
     const m = all.match(re);
     if (m) return msg.replace('$1', (m[1] ?? '').trim());
   }
+  const node = all.match(/1010:\s*Invalid Transaction:\s*Custom error:\s*(\d+)/i);
+  if (node) return `The Midnight node rejected the transaction (ledger error ${node[1]}).`;
   return parts[0]?.split('\n')[0]?.slice(0, 300) ?? 'Unknown error';
 }
