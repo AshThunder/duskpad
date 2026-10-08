@@ -177,9 +177,23 @@ Deployments on Preprod use `mode: 'async'` (the app returns once the wallet acce
 | SDK unit | `npm test -w @duskpad/sdk` | Credentials, derivations, backups (wrong passphrase, tampering), schedule math, address parsing | **16 / 16** |
 | API | `npm test -w @duskpad/api` | Mock issuer validation and signatures, registry validation | **5 / 5** |
 | End-to-end matrix | `npm run e2e` | The 44-row feasibility matrix reproduced on DuskPad's contracts plus 3 extras, real proofs and transactions on the local stack | **47 / 47** (44/44 matrix rows + 3 extras) |
-| Browser flow | `npm run e2e:ui` | Playwright drives the production build with dev wallets: 2 sales, credentials, 4 buys, cap and region checks, finalize both ways, refund, withdraw, fee collection, backup export/import, fresh-wallet claim, report, auditor view | **UI_RESULT** |
+| Browser flow | `npm run e2e:ui` | Playwright drives the production build with dev wallets: 2 sales, credentials, 4 buys, cap and region checks, finalize both ways, refund, withdraw, fee collection, backup export/import, fresh-wallet claim, report, auditor view | **19 / 19** steps |
 
-The latest e2e report is in [`e2e/reports/LATEST.md`](e2e/reports/LATEST.md), and screenshots from the browser flow are in [`docs/screenshots`](docs/screenshots).
+The latest e2e report is in [`e2e/reports/LATEST.md`](e2e/reports/LATEST.md) (raw: `LATEST.json`); the browser-flow results are in `e2e/reports/UI-LATEST.json`. The browser flow is resumable (`RESUME=1 npm run e2e:ui`) because each persona keeps a persistent browser profile holding its private vault.
+
+Both e2e suites ran on 8 Oct 2026 against the local stack: the matrix in about 21 minutes (it waits for real sale windows and vesting cliffs), and the browser flow in about 10 minutes.
+
+### Screenshots (browser flow, local devnet)
+
+| | |
+|---|---|
+| ![Create sale](docs/screenshots/02-create-sale-form.png) Create a sale | ![Explore](docs/screenshots/04-explore.png) Explore |
+| ![Credential](docs/screenshots/05-credential.png) Mock credential | ![Buy](docs/screenshots/07-buy-stepper.png) Buying privately |
+| ![Cap](docs/screenshots/09-per-person-cap.png) Per-person cap | ![Blocked](docs/screenshots/10-ineligible-blocked-region.png) Blocked region |
+| ![Refund](docs/screenshots/11-refund-stepper.png) Private refund | ![Project](docs/screenshots/13-project-console.png) Project console |
+| ![Fees](docs/screenshots/15-platform-fees.png) Platform fees | ![Dashboard](docs/screenshots/16-dashboard.png) Private dashboard |
+| ![Fresh](docs/screenshots/18-claim-ready.png) Fresh wallet after backup import | ![Claimed](docs/screenshots/20-claim-done.png) Claimed |
+| ![Report](docs/screenshots/21-sale-report.png) Public report | ![Auditor](docs/screenshots/22-auditor-view.png) Auditor view (optional) |
 
 CI (`ci/github-actions-ci.yml`) installs Compact 0.31.1, compiles both contracts, runs the simulator, SDK and API tests, typechecks, and builds the frontend. It lives outside `.github/workflows/` only because the token used to push this branch lacked the `workflow` scope. Moving it there (one `git mv`) activates it.
 
