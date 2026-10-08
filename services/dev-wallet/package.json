@@ -1,0 +1,39 @@
+{
+  "name": "@duskpad/dev-wallet",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "LOCAL-ONLY dev wallet bridge: exposes the DApp Connector v4 ConnectedAPI of headless wallets on the undeployed network over HTTP.",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "bootstrap": "tsx src/bootstrap.ts",
+    "fund": "tsx src/fund.ts",
+    "preprod": "tsx src/preprod-wallet.ts",
+    "preprod:dust": "tsx src/preprod-dust.ts"
+  },
+  "dependencies": {
+    "@duskpad/contracts": "0.1.0",
+    "@duskpad/sdk": "0.1.0",
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0",
+    "@midnight-ntwrk/testkit-js": "4.1.1",
+    "@midnight-ntwrk/wallet-sdk": "1.2.0",
+    "pino": "10.3.1",
+    "rxjs": "7.8.2",
+    "tsx": "4.22.4",
+    "ws": "8.21.0"
+  },
+  "exports": {
+    "./node": "./src/node.ts",
+    "./bootstrap": "./src/bootstrap.ts"
+  }
+}

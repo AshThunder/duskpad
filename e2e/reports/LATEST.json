@@ -1,0 +1,430 @@
+{
+  "runId": "2026-10-08T09-58-23-344Z",
+  "pass": 47,
+  "total": 47,
+  "rows": [
+    {
+      "id": "P1",
+      "name": "Simulator probes (valid buy, second buy, tampered attribute, stolen credential, blocked country, second person)",
+      "expected": "6/6",
+      "ok": true,
+      "detail": "6/6 ",
+      "where": "simulator",
+      "secs": 0.445
+    },
+    {
+      "id": "SETUP-1",
+      "name": "Local ledger-8 stack; buyer A, buyer B, project, platform, fresh and connector wallets funded (tNIGHT) with DUST registered",
+      "expected": "all funded",
+      "ok": true,
+      "detail": "6 wallets synced, funded and generating DUST",
+      "where": "chain",
+      "secs": 85.959
+    },
+    {
+      "id": "A-0",
+      "name": "Same domain separator in another contract gives a different token color",
+      "expected": "colors differ",
+      "ok": true,
+      "detail": "tUSD 9d8651787ccd… vs FAKE 1d9770142130…",
+      "where": "ledger",
+      "secs": 36.956
+    },
+    {
+      "id": "A-0b",
+      "name": "(adapted) Token colors are derived off-chain from the deployed address: minted coins land under rawTokenType(domain, address)",
+      "expected": "wallet sees coins under the off-chain color",
+      "ok": true,
+      "detail": "A holds 10000000000 base units under 9d8651787ccd… (constructor never computes a color)",
+      "where": "chain and wallet",
+      "secs": 47.887
+    },
+    {
+      "id": "A-1",
+      "name": "Shielded tUSD minted to buyer A and buyer B",
+      "expected": "+10,000 each",
+      "ok": true,
+      "detail": "A +10000, B +10000",
+      "where": "chain",
+      "secs": 0.001
+    },
+    {
+      "id": "A-2a",
+      "name": "Contract output to a non-caller key without its encryption key",
+      "expected": "rejected: /encryption public key|Unable to resolve/i",
+      "ok": true,
+      "detail": "rejected (\"encryption public key|Unable to resolve\")",
+      "where": "Midnight.js",
+      "secs": 0.058
+    },
+    {
+      "id": "A-2b",
+      "name": "Contract output to a non-caller key with additionalCoinEncPublicKeyMappings",
+      "expected": "B wallet sees +500",
+      "ok": true,
+      "detail": "B 10000 -> 10500",
+      "where": "chain and wallet",
+      "secs": 23.952
+    },
+    {
+      "id": "W-1",
+      "name": "DApp Connector v4 ConnectedAPI path: deploy a sale",
+      "expected": "deployed",
+      "ok": true,
+      "detail": "sale c0e2dd37e644ec33…",
+      "where": "chain",
+      "secs": 17.302
+    },
+    {
+      "id": "W-2",
+      "name": "DApp Connector path: shielded mint; getShieldedBalances() shows it",
+      "expected": "+5,000",
+      "ok": true,
+      "detail": "0 -> 5000",
+      "where": "chain and wallet",
+      "secs": 23.831
+    },
+    {
+      "id": "W-3",
+      "name": "DApp Connector path: private buyTicket, wallet adds tUSD inputs in balanceUnsealedTransaction",
+      "expected": "-1,000, ticketsSold=1",
+      "ok": true,
+      "detail": "5000 -> 4000, ticketsSold=1",
+      "where": "chain",
+      "secs": 26.076
+    },
+    {
+      "id": "C-1",
+      "name": "A and B each buy 1 ticket with shielded tUSD",
+      "expected": "A,B -1,000; vault 2 coins; 2 buy nullifiers",
+      "ok": true,
+      "detail": "A -1000, B -1000, vault 2, nullifiers 2",
+      "where": "chain",
+      "secs": 58.046
+    },
+    {
+      "id": "C-2",
+      "name": "A buys a 2nd ticket (per-person max = 2)",
+      "expected": "accepted",
+      "ok": true,
+      "detail": "ticketsSold=3",
+      "where": "chain",
+      "secs": 23.973
+    },
+    {
+      "id": "F-1",
+      "name": "Credential signed by a non-issuer key",
+      "expected": "rejected: bad issuer signature",
+      "ok": true,
+      "detail": "rejected (\"bad issuer signature\")",
+      "where": "circuit",
+      "secs": 0.049
+    },
+    {
+      "id": "F-2",
+      "name": "KYC level below minimum",
+      "expected": "rejected: kyc level too low",
+      "ok": true,
+      "detail": "rejected (\"kyc level too low\")",
+      "where": "circuit",
+      "secs": 0.045
+    },
+    {
+      "id": "F-5",
+      "name": "3rd ticket for the same person (over the per-person cap)",
+      "expected": "rejected: per-person ticket cap reached",
+      "ok": true,
+      "detail": "rejected (\"per-person ticket cap reached\")",
+      "where": "circuit",
+      "secs": 0.046
+    },
+    {
+      "id": "F-6",
+      "name": "Same person reuses ticket index 0",
+      "expected": "rejected: ticket index already used",
+      "ok": true,
+      "detail": "rejected (\"ticket index already used\")",
+      "where": "circuit",
+      "secs": 0.049
+    },
+    {
+      "id": "F-7",
+      "name": "A's credential and holder secret used from B's wallet",
+      "expected": "rejected: ticket index already used",
+      "ok": true,
+      "detail": "rejected (\"ticket index already used\")",
+      "where": "circuit",
+      "secs": 0.055
+    },
+    {
+      "id": "F-8",
+      "name": "Blocked country",
+      "expected": "rejected: blocked region",
+      "ok": true,
+      "detail": "rejected (\"blocked region\")",
+      "where": "circuit",
+      "secs": 0.061
+    },
+    {
+      "id": "F-9",
+      "name": "Stolen credential (wrong holder secret)",
+      "expected": "rejected: credential not bound to this holder",
+      "ok": true,
+      "detail": "rejected (\"credential not bound to this holder\")",
+      "where": "circuit",
+      "secs": 0.059
+    },
+    {
+      "id": "F-10",
+      "name": "Wrong coin color (FAKE token, same \"tUSD\" domain, different contract)",
+      "expected": "rejected: wrong payment token",
+      "ok": true,
+      "detail": "rejected (\"wrong payment token\")",
+      "where": "circuit",
+      "secs": 0.042
+    },
+    {
+      "id": "F-11",
+      "name": "Wrong amount (999)",
+      "expected": "rejected: wrong payment amount",
+      "ok": true,
+      "detail": "rejected (\"wrong payment amount\")",
+      "where": "circuit",
+      "secs": 0.041
+    },
+    {
+      "id": "X-1",
+      "name": "(extra) Expired credential",
+      "expected": "rejected: credential expired",
+      "ok": true,
+      "detail": "rejected (\"credential expired\")",
+      "where": "circuit",
+      "secs": 0.063
+    },
+    {
+      "id": "F-12",
+      "name": "Race: same person and ticket index submitted at once from 2 wallets (same state)",
+      "expected": "one accepted; loser not charged",
+      "ok": true,
+      "detail": "accepted=1, charged wallets=1, ticketsSold=4; loser: {\n\t\"circuitId\": \"buyTicket\",\n\t\"tx\": {\n\t\t\"__wbg_ptr\": 8990672\n\t},\n\t\"status\": \"FailFallible\",\n\t\"txId\": \"00ec9fe29a6da3016776d15db859a037fc29e4",
+      "where": "ledger",
+      "secs": 47.569
+    },
+    {
+      "id": "S1-W",
+      "name": "Withdraw while the sale is live",
+      "expected": "rejected: sale did not succeed",
+      "ok": true,
+      "detail": "rejected (\"sale did not succeed\")",
+      "where": "circuit",
+      "secs": 0.08
+    },
+    {
+      "id": "X-3",
+      "name": "(extra) Auditor disclosure: auditor key decrypts each ticket to the buyer's credential commitment",
+      "expected": "A x2, B x1, R x1",
+      "ok": true,
+      "detail": "4 records: A 2, B 1, R 1",
+      "where": "off-chain",
+      "secs": 0.037
+    },
+    {
+      "id": "F-13",
+      "name": "Buy when sold out",
+      "expected": "rejected: sold out",
+      "ok": true,
+      "detail": "rejected (\"sold out\")",
+      "where": "circuit",
+      "secs": 0.045
+    },
+    {
+      "id": "E-0",
+      "name": "Finalize S2 early on hard cap with soft cap met",
+      "expected": "phase=succeeded",
+      "ok": true,
+      "detail": "phase=succeeded, sold=4",
+      "where": "chain",
+      "secs": 18.641
+    },
+    {
+      "id": "E-1",
+      "name": "Claim before cliff",
+      "expected": "rejected: tranche still locked",
+      "ok": true,
+      "detail": "rejected (\"tranche still locked\")",
+      "where": "circuit",
+      "secs": 0.041
+    },
+    {
+      "id": "E-2",
+      "name": "Refund when the soft cap was met",
+      "expected": "rejected: refunds not open",
+      "ok": true,
+      "detail": "rejected (\"refunds not open\")",
+      "where": "circuit",
+      "secs": 0.058
+    },
+    {
+      "id": "E-3",
+      "name": "Withdraw by a non-project wallet",
+      "expected": "rejected: not the project",
+      "ok": true,
+      "detail": "rejected (\"not the project\")",
+      "where": "circuit",
+      "secs": 0.072
+    },
+    {
+      "id": "E-4",
+      "name": "(adapted) Withdraw a forged coin that is not in the vault (the fee split itself is fixed in-contract)",
+      "expected": "rejected: not a vault coin",
+      "ok": true,
+      "detail": "rejected (\"not a vault coin\")",
+      "where": "circuit",
+      "secs": 0.072
+    },
+    {
+      "id": "E-5",
+      "name": "Project withdraws all 4 ticket coins net of 2.5%",
+      "expected": "project +3,900; fee vault 4 x 25",
+      "ok": true,
+      "detail": "project +3900; fee vault 4 x 25; withdrawn=4",
+      "where": "chain",
+      "secs": 107.858
+    },
+    {
+      "id": "E-6",
+      "name": "Fee collection by a non-platform wallet",
+      "expected": "rejected: not the platform",
+      "ok": true,
+      "detail": "rejected (\"not the platform\")",
+      "where": "circuit",
+      "secs": 0.067
+    },
+    {
+      "id": "E-7",
+      "name": "Platform collects fees",
+      "expected": "platform +100",
+      "ok": true,
+      "detail": "platform +100",
+      "where": "chain",
+      "secs": 95.944
+    },
+    {
+      "id": "E-10",
+      "name": "Conservation: buyers paid 4,000 = project 3,900 + platform 100",
+      "expected": "equal",
+      "ok": true,
+      "detail": "paid 4000 = received 4000",
+      "where": "chain",
+      "secs": 0.049
+    },
+    {
+      "id": "F-4",
+      "name": "Buy after end time",
+      "expected": "rejected: sale ended",
+      "ok": true,
+      "detail": "rejected (\"sale ended\")",
+      "where": "circuit",
+      "secs": 0.043
+    },
+    {
+      "id": "D-0",
+      "name": "Finalize S1 after end with soft cap missed",
+      "expected": "phase=failed",
+      "ok": true,
+      "detail": "phase=failed, sold=4 < soft cap 5",
+      "where": "chain",
+      "secs": 17.28
+    },
+    {
+      "id": "D-1",
+      "name": "Buyer A refund",
+      "expected": "A +1,000",
+      "ok": true,
+      "detail": "A 6000 -> 7000",
+      "where": "chain",
+      "secs": 30.669
+    },
+    {
+      "id": "D-2",
+      "name": "Buyer B refund",
+      "expected": "B +1,000",
+      "ok": true,
+      "detail": "B 6500 -> 7500",
+      "where": "chain",
+      "secs": 24.012
+    },
+    {
+      "id": "D-3",
+      "name": "Double refund, same receipt (sequential)",
+      "expected": "rejected: receipt already used for this",
+      "ok": true,
+      "detail": "rejected (\"receipt already used for this\")",
+      "where": "circuit",
+      "secs": 0.086
+    },
+    {
+      "id": "D-4",
+      "name": "Race: double refund of the same receipt from 2 wallets, different vault coins",
+      "expected": "one accepted",
+      "ok": true,
+      "detail": "accepted=1; loser: {\n\t\"circuitId\": \"refund\",\n\t\"tx\": {\n\t\t\"__wbg_ptr\": 5161936\n\t},\n\t\"status\": \"FailFallible\",\n\t\"txId\": \"0000e5d615742d8049c323153c56425e4da8821db43f459eff7a206b81488",
+      "where": "ledger",
+      "secs": 29.292
+    },
+    {
+      "id": "D-5",
+      "name": "After the race: no double payout (refunds = tickets, vault empty, 4 receipt nullifiers)",
+      "expected": "consistent",
+      "ok": true,
+      "detail": "refundsPaid=4, sold=4, vault=0, receiptNullifiers=4",
+      "where": "chain",
+      "secs": 24.063
+    },
+    {
+      "id": "X-4",
+      "name": "(extra) Tranche 2 stays locked until cliff + interval",
+      "expected": "rejected: tranche still locked",
+      "ok": true,
+      "detail": "rejected (\"tranche still locked\")",
+      "where": "circuit",
+      "secs": 0.062
+    },
+    {
+      "id": "E-8",
+      "name": "Claims after cliff mint sale tokens (tranche 1 = 50 per ticket)",
+      "expected": "A +100, B +50",
+      "ok": true,
+      "detail": "A +100, B +50 (color 9e01851d1843…)",
+      "where": "chain",
+      "secs": 70.59
+    },
+    {
+      "id": "E-9",
+      "name": "Double claim (sequential)",
+      "expected": "rejected: receipt already used for this",
+      "ok": true,
+      "detail": "rejected (\"receipt already used for this\")",
+      "where": "circuit",
+      "secs": 0.057
+    },
+    {
+      "id": "E-11",
+      "name": "Fresh wallet (never bought, no tUSD) claims with a receipt secret",
+      "expected": "fresh +50",
+      "ok": true,
+      "detail": "fresh wallet sale tokens 0 -> 50; its tUSD = 0",
+      "where": "chain",
+      "secs": 23.94
+    },
+    {
+      "id": "E-12",
+      "name": "Race: double claim of the same receipt and tranche from 2 wallets",
+      "expected": "one accepted",
+      "ok": true,
+      "detail": "accepted=1, claimsPaid=5; loser: {\n\t\"circuitId\": \"claim\",\n\t\"tx\": {\n\t\t\"__wbg_ptr\": 6926560\n\t},\n\t\"status\": \"FailFallible\",\n\t\"txId\": \"00d751270ff791f4eb9aeff83436199b5e23bd0bde",
+      "where": "ledger",
+      "secs": 24.085
+    }
+  ]
+}

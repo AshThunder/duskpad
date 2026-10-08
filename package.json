@@ -1,0 +1,40 @@
+{
+  "name": "duskpad",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DuskPad: a private token launchpad on Midnight. Prove you qualify, buy unseen, claim unlinked.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "contracts",
+    "packages/sdk",
+    "services/api",
+    "services/dev-wallet",
+    "e2e",
+    "frontend"
+  ],
+  "scripts": {
+    "compile": "npm run compile -w @duskpad/contracts",
+    "compile:fast": "npm run compile:fast -w @duskpad/contracts",
+    "test": "npm run test -w @duskpad/contracts && npm run test -w @duskpad/sdk && npm run test -w @duskpad/api",
+    "typecheck": "npm run typecheck -w @duskpad/sdk && npm run typecheck -w @duskpad/frontend",
+    "stack:up": "docker compose -f docker/stack.yml up -d",
+    "stack:down": "docker compose -f docker/stack.yml down -v",
+    "e2e": "npm run start -w @duskpad/e2e",
+    "dev:api": "npm run start -w @duskpad/api",
+    "dev:wallet": "npm run start -w @duskpad/dev-wallet",
+    "dev:web": "npm run dev -w @duskpad/frontend",
+    "build:web": "npm run build -w @duskpad/frontend",
+    "e2e:ui": "node e2e/ui/flow.mjs",
+    "preview:web": "npm run preview -w @duskpad/frontend",
+    "build:web:preprod": "VITE_NETWORK=preprod DUSKPAD_OUT_DIR=dist-preprod npm run build -w @duskpad/frontend",
+    "preview:web:preprod": "VITE_NETWORK=preprod DUSKPAD_OUT_DIR=dist-preprod DUSKPAD_PREVIEW_PORT=4174 npm run preview -w @duskpad/frontend",
+    "fund:local": "npm run fund -w @duskpad/dev-wallet --"
+  },
+  "overrides": {
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
