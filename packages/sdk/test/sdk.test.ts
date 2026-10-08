@@ -113,3 +113,58 @@ describe('shielded address parsing', () => {
     expect(() => parseShieldedAddress('hello')).toThrow();
   });
 });
+
+import {
+  normalizeShieldedKeys, normalizeBalances, balanceOf, normalizeDust, decodeKey32, isRejection, proofProviderWithFallback,
+} from '../src/connector';
+describe('wallet connector normalization (1AM / Lace / dev wallet encodings)', () => {
+  const addr = 'mn_shield-addr_undeployed17jrde8jwl92xnc9yxt4wuuk90eay73y3sgrfkh4dpz6sf700rduzjmn4dv093ylpa3tpc5r0rspv9f0n9u9ux3hfj7gwja2pct26j3qf068ud';
+  const cpk = 'f486dc9e4ef95469e0a432eaee72c57e7a4f449182069b5ead08b504f9ef1b78';
+  const epk = '296e756b1e5893e1ec561c506f1c02c2a5f32f0bc346e99790e97541c2d5a944';
+  // Bech32m vectors produced with @midnight-ntwrk/wallet-sdk-address-format (the codec Lace uses).
+  const cpkB32 = 'mn_shield-cpk_undeployed17jrde8jwl92xnc9yxt4wuuk90eay73y3sgrfkh4dpz6sf700rduqqsmgq5';
+  const cpkPreprod = 'mn_shield-cpk_preprod17jrde8jwl92xnc9yxt4wuuk90eay73y3sgrfkh4dpz6sf700rduqma8le8';
+  const epkPreprod = 'mn_shield-epk_preprod199h826c7tzf7rmzkr3gx78qzc2jlxtctcdrwn9usa965rsk449zq6duxvd';
+
+  it('accepts hex keys (dev wallet / testkit adapter)', () => {
+    expect(normalizeShieldedKeys({ shieldedAddress: addr, shieldedCoinPublicKey: cpk, shieldedEncryptionPublicKey: epk }))
+      .toEqual({ coinPublicKey: cpk, encryptionPublicKey: epk, network: 'undeployed' });
+  });
+  it('decodes Bech32m keys (Lace, DApp Connector v4 spec)', () => {
+    expect(decodeKey32(cpkB32, 'shield-cpk')).toBe(cpk);
+    expect(decodeKey32(cpkPreprod, 'shield-cpk')).toBe(cpk);
+    expect(decodeKey32(epkPreprod, 'shield-epk')).toBe(epk);
+    expect(decodeKey32(cpkPreprod, 'shield-epk')).toBeNull();
+    expect(decodeKey32('0x' + cpk.toUpperCase(), 'shield-cpk')).toBe(cpk);
+    const k = normalizeShieldedKeys({ shieldedAddress: addr, shieldedCoinPublicKey: cpkB32, shieldedEncryptionPublicKey: '0x' + epk });
+    expect(k.coinPublicKey).toBe(cpk);
+    expect(k.encryptionPublicKey).toBe(epk);
+  });
+  it('falls back to the shielded address and rejects inconsistent wallets', () => {
+    expect(normalizeShieldedKeys({ shieldedAddress: addr }).coinPublicKey).toBe(cpk);
+    expect(() => normalizeShieldedKeys({ shieldedAddress: addr, shieldedCoinPublicKey: epk, shieldedEncryptionPublicKey: epk })).toThrow(/do not match/);
+    expect(() => normalizeShieldedKeys({ shieldedAddress: 'nope' })).toThrow();
+  });
+  it('normalizes balances from bigint, strings and numbers', () => {
+    const b = normalizeBalances({ ['0x' + cpk.toUpperCase()]: '24000000000', [epk]: 5n, abc: 7 });
+    expect(b[cpk]).toBe(24000000000n);
+    expect(balanceOf(b, epk)).toBe(5n);
+    expect(balanceOf(b, '0x' + cpk)).toBe(24000000000n);
+    expect(balanceOf({ ['02' + cpk]: 9n }, cpk)).toBe(9n);
+    expect(balanceOf(undefined, cpk)).toBe(0n);
+    expect(normalizeDust({ balance: '10', cap: 20n })).toEqual({ balance: 10n, cap: 20n });
+    expect(normalizeDust(null)).toBeNull();
+  });
+  it('only falls back to the proof server on technical errors, never on a rejection', async () => {
+    const rejected = Object.assign(new Error('Transaction rejected by the user'), { code: 'Rejected' });
+    expect(isRejection(rejected)).toBe(true);
+    expect(isRejection(new Error('Request timed out'))).toBe(false);
+    const fb = { proveTx: async () => 'server' };
+    const timeout = proofProviderWithFallback({ proveTx: async () => { throw new Error('Request timed out'); } }, () => fb);
+    await expect(timeout.proveTx({})).resolves.toBe('server');
+    const reject = proofProviderWithFallback({ proveTx: async () => { throw rejected; } }, () => fb);
+    await expect(reject.proveTx({})).rejects.toBe(rejected);
+    expect(explainError(rejected)).toBe('The wallet rejected the request.');
+    expect(explainError({ code: 'Rejected', reason: 'x' })).toBe('The wallet rejected the request.');
+  });
+});

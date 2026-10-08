@@ -20,6 +20,8 @@ export interface TxOptions {
   onStage?: StageListener;
   /** Coin public key (hex) -> encryption public key (hex), required when a contract pays a non-caller. */
   coinKeyMappings?: Map<string, string>;
+  /** 'async' deploys: how long to poll the indexer for the new contract (default 5 minutes). */
+  confirmTimeoutMs?: number;
 }
 
 export interface TxResult { txHash: string; blockHeight?: number; status?: string }
@@ -76,6 +78,16 @@ export type DeployMode = 'wait' | 'async';
  * as soon as the wallet accepted the transaction (recommended on Preprod, where the
  * indexer can lag behind).
  */
+/** Poll the indexer until a contract exists at `address` (true) or the timeout passes (false). */
+export async function waitForContract(publicDataProvider: any, address: string, timeoutMs = 300_000, everyMs = 4_000): Promise<boolean> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    try { if (await publicDataProvider.queryContractState(address)) return true; } catch { /* indexer hiccup: keep polling */ }
+    if (Date.now() + everyMs > until) return false;
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+}
+
 async function deploy(providers: any, compiledContract: any, args: unknown[], mode: DeployMode, opts: TxOptions) {
   const p = instrument(providers, opts.onStage);
   opts.onStage?.('execute');
@@ -87,8 +99,13 @@ async function deploy(providers: any, compiledContract: any, args: unknown[], mo
   const { sampleSigningKey } = await import('@midnight-ntwrk/compact-runtime');
   const data: any = await createUnprovenDeployTx(p, { compiledContract, args, signingKey: sampleSigningKey() } as any);
   const txHash = await submitTxAsync(p, { unprovenTx: data.private.unprovenTx } as any);
-  opts.onStage?.('done');
-  return { address: data.public.contractAddress as string, txHash: String(txHash) };
+  const address = data.public.contractAddress as string;
+  // Confirm by polling contract state instead of Midnight.js' deploy watcher (which can hang on
+  // public networks). A timeout is not fatal: the transaction is already submitted.
+  opts.onStage?.('confirm', { txHash: String(txHash) });
+  const confirmed = await waitForContract(p.publicDataProvider, address, opts.confirmTimeoutMs ?? 300_000);
+  opts.onStage?.('done', { txHash: String(txHash) });
+  return { address, txHash: String(txHash), confirmed };
 }
 
 export async function deploySale(providers: any, params: Sale.SaleParams, adminSecret: Uint8Array,
@@ -145,14 +162,23 @@ export async function readTusdLedger(publicDataProvider: any, address: string): 
 export function explainError(e: unknown): string {
   const parts: string[] = [];
   let x: any = e;
-  for (let i = 0; x && i < 5; i++) { parts.push(String(x.message ?? x)); x = x.cause; }
+  for (let i = 0; x && i < 5; i++) {
+    // DApp Connector errors carry { code, reason } (1AM: code 'Rejected'; Lace: ErrorCodes.Rejected).
+    if (x.code === 'Rejected' || x.code === -3) return 'The wallet rejected the request.';
+    parts.push(String(x.message ?? x.reason ?? x.info ?? x));
+    x = x.cause;
+  }
   const all = parts.join(' | ');
   const known: [RegExp, string][] = [
     [/failed assert: ([^|\n]+)/i, '$1'],
     [/Unable to resolve encryption public key/i, 'The payout address is missing its encryption key.'],
-    [/could not balance dust|insufficient.*dust|Not enough dust/i, 'Your wallet has no spendable DUST for fees yet.'],
+    [/BalanceCheckOverspend|\b138\b.*dust|could not balance dust|insufficient.*dust|Not enough dust/i, 'Your wallet has no spendable DUST for fees yet.'],
     [/insufficient (funds|balance)|Insufficient/i, 'Not enough shielded tUSD in this wallet.'],
     [/rejected|denied|cancel/i, 'The wallet rejected the request.'],
+    [/Request timed out/i, 'The wallet did not answer within 5 minutes. Check the extension popup and try again.'],
+    [/Payload too large/i, 'The transaction is too large for the wallet extension to accept.'],
+    [/No account is connected|Please reconnect|disconnected/i, 'The wallet disconnected. Reconnect it and try again.'],
+    [/Failed to fetch|NetworkError|ERR_CONNECTION_REFUSED/i, 'A network service could not be reached (proof server, indexer or node). Check that it is running.'],
   ];
   for (const [re, msg] of known) {
     const m = all.match(re);

@@ -26,7 +26,10 @@
     "dev:web": "npm run dev -w @duskpad/frontend",
     "build:web": "npm run build -w @duskpad/frontend",
     "e2e:ui": "node e2e/ui/flow.mjs",
-    "preview:web": "npm run preview -w @duskpad/frontend"
+    "preview:web": "npm run preview -w @duskpad/frontend",
+    "build:web:preprod": "VITE_NETWORK=preprod DUSKPAD_OUT_DIR=dist-preprod npm run build -w @duskpad/frontend",
+    "preview:web:preprod": "VITE_NETWORK=preprod DUSKPAD_OUT_DIR=dist-preprod DUSKPAD_PREVIEW_PORT=4174 npm run preview -w @duskpad/frontend",
+    "fund:local": "npm run fund -w @duskpad/dev-wallet --"
   },
   "overrides": {
     "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"

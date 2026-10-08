@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { KeyRound, LogOut, Menu, X } from 'lucide-react';
-import { formatUnits } from '@duskpad/sdk';
+import { formatUnits, balanceOf } from '@duskpad/sdk';
 import { Logo } from './Logo';
 import { WalletModal } from './WalletModal';
 import { useWallet } from '../state/WalletContext';
@@ -26,7 +26,7 @@ export function Navbar() {
   const { network } = useApp();
   const [open, setOpen] = useState(false);
   const [mobile, setMobile] = useState(false);
-  const tusd = network && balances ? balances.shielded[network.tusd.color] ?? 0n : null;
+  const tusd = network && balances ? balanceOf(balances.shielded, network.tusd.color) : null;
   const cls = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'px-4 py-2 font-bold text-ink border-b-2 border-ink' : 'px-4 py-2 rounded-full text-on-surface-variant hover:bg-surface-high transition-colors';
 

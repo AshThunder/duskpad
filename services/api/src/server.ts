@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  COUNTRIES, KYC_LEVELS, credentialToJSON, pad32, pointOf, scalarFrom, signCredential,
+  COUNTRIES, KYC_LEVELS, credentialToJSON, pad32, pointOf, saleTokenColor, scalarFrom, signCredential,
 } from '@duskpad/sdk';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +29,9 @@ const INDEXERS: Record<string, string> = {
 const ISSUER_SK = scalarFrom(pad32(process.env.ISSUER_SEED ?? 'duskpad-mock-issuer-v1'));
 const ISSUER_PK = pointOf(ISSUER_SK);
 const CREDENTIAL_DAYS = Number(process.env.CREDENTIAL_DAYS ?? 30);
+// Optional: lets an operator replace an existing public-network config (x-admin-token header).
+const ADMIN_TOKEN = process.env.DUSKPAD_ADMIN_TOKEN ?? '';
+const TUSD_DOMAIN_HEX = '6475736b7061643a745553440000000000000000000000000000000000000000'; // pad32('duskpad:tUSD')
 
 fs.mkdirSync(DATA, { recursive: true });
 const file = (n: string) => path.join(DATA, n);
@@ -71,7 +74,7 @@ function send(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, {
     'content-type': 'application/json',
     'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'content-type',
+    'access-control-allow-headers': 'content-type, x-admin-token',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
   });
   res.end(JSON.stringify(body));
@@ -159,6 +162,36 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
     if (n && req.method === 'GET') {
       const cfg = load<Record<string, unknown>>('networks.json', {})[n[1]];
       return cfg ? send(res, 200, cfg) : send(res, 404, { error: `no DuskPad deployment recorded for ${n[1]}` });
+    }
+    // Register a public network deployment from the in-app setup page (the browser deploys tUSD
+    // with the connected wallet, then records it here). Set-once: replacing needs the admin token.
+    // The undeployed config is owned by the local bootstrap and cannot be written here.
+    if (n && req.method === 'POST') {
+      const network = n[1];
+      if (network === 'undeployed' || !INDEXERS[network]) return send(res, 400, { error: 'only public networks can be registered here' });
+      const nets = load<Record<string, any>>('networks.json', {});
+      const token = String(req.headers['x-admin-token'] ?? '');
+      if (nets[network] && !(ADMIN_TOKEN && token === ADMIN_TOKEN)) return send(res, 409, { error: `${network} is already configured` });
+      const b = await body(req);
+      const address = str(b?.tusd?.address, 80).toLowerCase().replace(/^0x/, '');
+      const domain = str(b?.tusd?.domain ?? TUSD_DOMAIN_HEX, 66).toLowerCase().replace(/^0x/, '');
+      const feeKey = str(b?.platform?.feeKey, 66).toLowerCase().replace(/^0x/, '');
+      const feeBps = Number(b?.platform?.defaultFeeBps ?? 250);
+      const faucetLimit = str(String(b?.tusd?.faucetLimit ?? '100000000000'), 30);
+      if (!HEX64.test(address) || !HEX64.test(domain) || !HEX64.test(feeKey)) return send(res, 400, { error: 'tusd.address, tusd.domain and platform.feeKey must be 32-byte hex' });
+      if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > 2000) return send(res, 400, { error: 'defaultFeeBps must be 0..2000' });
+      if (!/^\d{1,20}$/.test(faucetLimit)) return send(res, 400, { error: 'faucetLimit must be an integer' });
+      if (!(await contractExists(network, address))) return send(res, 400, { error: 'tUSD contract not found on-chain (the indexer may still be catching up; retry shortly)' });
+      const cfg = {
+        networkId: network,
+        tusd: { address, color: saleTokenColor(domain, address), domain, decimals: 6, faucetLimit },
+        platform: { feeKey, defaultFeeBps: feeBps, name: str(b?.platform?.name, 40) || `DuskPad (${network})` },
+        issuer: { name: 'DuskPad Mock KYC Issuer', mock: true, publicKey: { x: ISSUER_PK.x.toString(), y: ISSUER_PK.y.toString() } },
+        updatedAt: new Date().toISOString(),
+      };
+      nets[network] = cfg;
+      save('networks.json', nets);
+      return send(res, 201, cfg);
     }
     return send(res, 404, { error: 'not found' });
   } catch (e: any) {

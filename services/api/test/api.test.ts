@@ -53,3 +53,15 @@ describe('registry', () => {
     expect(await (await fetch(base + '/sales?network=undeployed')).json()).toEqual([]);
   });
 });
+
+describe('public network registration', () => {
+  it('refuses the local network, unknown networks and malformed input', async () => {
+    expect((await post('/networks/undeployed', {})).status).toBe(400);
+    expect((await post('/networks/mainnet', {})).status).toBe(400);
+    expect((await post('/networks/preprod', { tusd: { address: 'xyz' }, platform: { feeKey: 'ab'.repeat(32) } })).status).toBe(400);
+    expect((await post('/networks/preprod', { tusd: { address: 'ab'.repeat(32) }, platform: { feeKey: 'ab'.repeat(32), defaultFeeBps: 5000 } })).status).toBe(400);
+  });
+  it('has no preprod config until one is registered', async () => {
+    expect((await fetch(base + '/networks/preprod')).status).toBe(404);
+  });
+});

@@ -1,26 +1,90 @@
 # Desktop testing with real wallet extensions
 
-Everything in DuskPad has run against a local ledger-8 network using dev wallets that implement the DApp Connector v4 interface. The real **1AM** and **Lace** extensions have **not** been tested yet. This checklist covers that gap.
+Everything in DuskPad has run against a local ledger-8 network using dev wallets that implement the DApp Connector v4 interface. The real **1AM** and **Lace** extensions still need a person at a desktop browser. This page is the script for that run.
 
-## Setup
+## What the app does for real wallets
 
-1. Install 1AM (primary) and/or Lace in a desktop Chrome profile. Create a wallet on **Preprod** with test funds only.
-2. On Preprod, deploy tUSD and register it (see README, "Preprod"), or point the wallet at a local undeployed node if the extension supports custom endpoints.
-3. Build the app with `VITE_NETWORK=preprod npm run build:web` and serve it with `npm run preview:web`, pointing `VITE_API_URL` at a reachable API.
+- Discovers wallets in `window.midnight` (1AM: `window.midnight['1am']`, Lace: `window.midnight.mnLace`) and lists 1AM first.
+- `connect('preprod')` is the first call in the click handler (Lace opens its pop-up only from a user gesture; Lace is never auto-reconnected).
+- Shielded keys are accepted as hex (dev wallets) or Bech32m (`mn_shield-cpk_…` / `mn_shield-epk_…`, what the v4 spec and Lace return) and cross-checked against the shielded address. Balances are normalised to bigint whatever the wallet returns.
+- Endpoints come from the wallet's `getConfiguration()`. The indexer is probed first; if it does not answer the app uses `indexer.preprod.midnight.network`. Expect "Indexer: default" for both wallets: 1AM's indexer (`api-preprod.1am.xyz`) needs a 1AM session token (401 for dapps), and Lace's Blockfrost proxy returned 410 Gone when tested. Both serve the same chain.
+- Proving: the wallet's `getProvingProvider` when offered (1AM proves in the extension, ProofStation). If it is missing or fails for a technical reason (not a rejection), the app proves on a proof server: the wallet's `proverServerUri` if it answers, otherwise the app's `/prover` proxy to the box's proof server 8.1.0. The Dashboard "Wallet connection" card shows which one was used.
+- Balancing and fees go through `balanceUnsealedTransaction` (1AM adds sponsored DUST), then `submitTransaction`.
+- Deploys use `createUnprovenDeployTx` + `submitTxAsync` and confirm by polling the indexer, not the blocking `deployContract`.
+
+## URLs on the box
+
+| Build | URL | Network |
+|---|---|---|
+| Preprod | http://127.0.0.1:4174 | `preprod` (`npm run build:web:preprod`, `npm run preview:web:preprod`) |
+| Local | http://127.0.0.1:4173 | `undeployed` (dev wallets, or 1AM/Lace switched to "Undeployed") |
+
+Both proxy `/api` to the DuskPad API on :8787 and `/prover` to the proof server on :6300. Static ZK assets are served with `Access-Control-Allow-Origin: *`.
+
+## Funding
+
+| Wallet | tNIGHT | DUST | tUSD |
+|---|---|---|---|
+| 1AM (Preprod) | Optional: 1AM can sponsor DUST fees through ProofStation. The faucet works too | Sponsored, or the wallet's own DUST after registering tNIGHT | Mint in the app (Dashboard → Mint 5,000 tUSD) after the one-time setup |
+| Lace (Preprod) | https://faucet.preprod.midnight.network/ (Cloudflare Turnstile; in the box browser it passed automatically) | In Lace, designate the tNIGHT for DUST and wait until DUST shows. It accrues over time and Lace syncs slowly, so allow 10+ minutes | Mint in the app |
+| Either wallet on the local build | `npm run fund:local -- <mn_addr_undeployed1…> [--amount 1000]` sends tNIGHT from the local genesis wallet | Register in the wallet and wait | Mint in the app |
+
+## Steps (Preprod, http://127.0.0.1:4174)
+
+Before starting, fund Lace (step 11) so its DUST is ready while you test 1AM: both sales below stay open for 20 minutes.
+
+### A. 1AM
+
+1. In 1AM, select the **Preprod** network. Any proof-server mode works: WASM (in-browser) and ProofStation both go through `getProvingProvider`; if in-browser proving fails or exceeds 1AM's 5-minute limit, the app re-proves on the box's proof server and says so on the Dashboard card. Open http://127.0.0.1:4174.
+2. **Checklist 1.** Click Connect: 1AM is listed first, then Lace (both "Detected").
+3. **Checklist 2.** Click 1AM and approve. Expected: the navbar shows the address; Dashboard shows tUSD 0, DUST ("fees sponsored by 1AM") and a "Wallet connection" card with API 4.x, wallet proving "supported".
+4. **One-time setup** (only if the yellow "not set up on this network" banner shows). Open `/setup`: click Generate for the platform master secret and Download it, then "Deploy tUSD on Midnight Preprod". Approve in 1AM. The page waits for the indexer, records the deployment with the API, and turns green.
+5. **Checklist 3.** Get verified: request a mock credential (e.g. Nigeria, level 2). It is stored in the vault.
+6. **Checklist 4.** Dashboard → Mint 5,000 tUSD. Approve once; after confirmation the shielded tUSD balance shows 5,000.
+7. **Checklist 5.** Launch: create a sale for the refund path: price 100, hard cap 100, **soft cap 20** (you will not reach it), start in 2 minutes, duration **20 minutes**, cliff 1 minute, 1 tranche. Approve. The stepper confirms, the sale page opens, and it is listed in Sales.
+8. Create a second sale for the success path: price 100, hard cap 3, **soft cap 1**, start in 2 minutes, duration 20 minutes, cliff 1 minute, **2 tranches 2 minutes apart**.
+9. **Checklist 6.** When each sale is live, buy one ticket in each. The stepper shows run → prove → balance → submit → confirm; the Dashboard card shows "Last proof: in the wallet" (or "proof server" with the reason if 1AM's proving failed). tUSD drops by 100 per ticket.
+10. **Checklist 10.** Start one more action (e.g. mint) and press Reject in 1AM. The stepper stops with "The wallet rejected the request." and the app keeps working.
+
+### B. Lace
+
+11. Fund Lace first: get tNIGHT from the faucet, designate it for DUST in Lace, wait for DUST to show. In Lace Settings → Midnight, set the proof server to **Local** (`http://localhost:6300`): the box runs proof server 8.1.0 (ledger 8) there and answers CORS for both the page and the extension.
+12. Disconnect 1AM in the app (navbar → disconnect), reload, and connect **Lace** with network Preprod. **Checklist 7.** The Dashboard card shows the indexer source ("default" if Lace's own indexer did not answer) and proving "proof server" if Lace offers no proving provider. Mint tUSD, get a credential (the vault is per wallet unless you link it), and buy a ticket in the success sale while it is still open.
+
+### C. After the sales end (about 22 minutes after creation)
+
+13. **Checklist 8.** On each sale page press Finalize (anyone can).
+    - Refund sale (soft cap missed): the buyer wallet refunds its ticket; tUSD comes back.
+    - Success sale: the creator wallet (1AM) withdraws proceeds; the Platform page → "Load saved key" (the secret from setup) → Collect fee; after the cliff the 1AM buyer claims **tranche 1** from the Dashboard (Lace can claim its own ticket too).
+14. **Checklist 9.** With 1AM connected: Dashboard → Export backup (passphrase). Switch to Lace, Dashboard → Import backup, select the restored vault, then claim **tranche 2** of the 1AM ticket from Lace. The tokens arrive in Lace although Lace never bought.
+
+## Fallback: real wallets on the local node
+
+1AM 6.3.24 has a built-in **Undeployed** network (indexer `http://localhost:8088/api/v4/graphql`, node `ws://localhost:9944`, proof server `http://localhost:6300`), exactly the box's local stack. Lace's Midnight settings also list Undeployed with the same ports. So:
+
+1. Switch the wallet to Undeployed and copy its unshielded address (`mn_addr_undeployed1…`).
+2. `npm run fund:local -- mn_addr_undeployed1…` (sends 1,000 tNIGHT from genesis), then register DUST in the wallet. There is no fee sponsorship locally.
+3. Use http://127.0.0.1:4173 (tUSD and the platform key are already set up by the local bootstrap) and run the same checklist.
 
 ## Checklist
 
 | # | Check | Expected |
 |---|---|---|
 | 1 | Connect modal lists 1AM first, then Lace | Both detected from `window.midnight` |
-| 2 | Connect 1AM | Network check passes (`getConfiguration().networkId === 'preprod'`); address and balances shown |
+| 2 | Connect 1AM | Network check passes (`networkId === 'preprod'`); address and balances shown |
 | 3 | Credential page: request a mock credential | Stored in the vault; the issuer request contains only commitment, country and level |
 | 4 | Dashboard: mint tUSD | 1AM prompts once; shielded balance increases |
-| 5 | Create Sale | The deploy stepper reaches "Submit"; the sale appears in Explore after the indexer catches up |
+| 5 | Create Sale | The deploy stepper confirms; the sale appears in Explore |
 | 6 | Buy a ticket | 1AM proves in-extension (`getProvingProvider`) or falls back to the proof server; the stepper shows each stage |
-| 7 | Same with Lace | Lace balances and submits; proving uses the proof server |
+| 7 | Same with Lace | Lace balances and submits; proving uses the proof server if Lace offers no proving provider |
 | 8 | Refund / withdraw / collect fee / claim | Each completes; balances update in the wallet UI |
 | 9 | Export the backup, then import it with a second wallet and claim | Tokens arrive in the second wallet |
 | 10 | Reject a prompt in the extension | The stepper stops with a readable error; the app stays usable |
 
-Report any mismatch in amounts, encodings (bigint vs string) or connector method names. Those are the most likely integration points.
+## Known risks to watch
+
+- **Buying with 1AM**: `buyTicket` spends shielded tUSD. 1AM documents `balanceUnsealedTransaction` as adding sponsored DUST; whether it also adds the user's shielded tUSD inputs has not been observed. If step 9 fails with a balance error, report the exact message (Dashboard card + stepper).
+- **Lace builds differ**: older Lace releases may lack `getProvingProvider`/`signData` (handled by the proof-server fallback) and default to an indexer URL that is gone (handled by the probe).
+- **Wallet timeouts**: 1AM gives up on a request after 5 minutes; the app then proves on the proof server.
+
+Report any mismatch in amounts, encodings or connector method names, with the text of the Dashboard "Wallet connection" card.

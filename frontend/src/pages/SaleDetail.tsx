@@ -8,8 +8,7 @@ import {
 } from 'lucide-react';
 import {
   adminKeyOf, countryName, deriveAdminSecret, formatUnits, fromHex, KYC_LEVELS, parseShieldedAddress, recoverTickets, saleTokenColor,
-  toHex, trancheSchedule, type Action, type OwnedTicket, type SaleView,
-} from '@duskpad/sdk';
+  toHex, trancheSchedule, type Action, type OwnedTicket, type SaleView, balanceOf } from '@duskpad/sdk';
 import { toast } from 'sonner';
 import { useSale, useNow, saleStatus, STATUS_LABEL, fmtDate, fmtDuration } from '../lib/sales';
 import { useTxFlow } from '../lib/txflow';
@@ -48,8 +47,8 @@ export function SaleDetail() {
   const st = saleStatus(view, nowS);
   const symbol = meta?.symbol ?? 'TOKEN';
   const raised = view.ticketPrice * BigInt(view.ticketsSold);
-  const tusdBal = balances?.shielded?.[view.payColor] ?? 0n;
-  const saleTokenBal = balances?.shielded?.[saleTokenColor(view.tokenDomain, address)] ?? 0n;
+  const tusdBal = balanceOf(balances?.shielded, view.payColor);
+  const saleTokenBal = balanceOf(balances?.shielded, saleTokenColor(view.tokenDomain, address));
 
   const after = async () => { await Promise.all([refresh(), refreshBalances()]); };
 

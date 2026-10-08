@@ -7,7 +7,8 @@
   "description": "LOCAL-ONLY dev wallet bridge: exposes the DApp Connector v4 ConnectedAPI of headless wallets on the undeployed network over HTTP.",
   "scripts": {
     "start": "tsx src/server.ts",
-    "bootstrap": "tsx src/bootstrap.ts"
+    "bootstrap": "tsx src/bootstrap.ts",
+    "fund": "tsx src/fund.ts"
   },
   "dependencies": {
     "@duskpad/contracts": "0.1.0",

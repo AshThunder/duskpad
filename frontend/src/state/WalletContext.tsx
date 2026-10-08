@@ -5,9 +5,10 @@
 // 1AM and Lace are detected by key/name; the local dev wallet is injected the same way.
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
-import { IS_LOCAL, NETWORK, localEndpoints, type Endpoints } from '../lib/config';
+import { isRejection, normalizeBalances, normalizeDust, normalizeShieldedKeys } from '@duskpad/sdk';
+import { NETWORK, NETWORK_LABEL, resolveWalletEndpoints, type Endpoints, type WalletConfiguration } from '../lib/config';
 import { installDevWallets, type DevAccount } from '../lib/devWallet';
-import { walletProviders, type ContractKind } from '../lib/providers';
+import { walletProviders, type ContractKind, type ProvingMode } from '../lib/providers';
 
 export type WalletKind = '1am' | 'lace' | 'dev' | 'other';
 export interface WalletOption { key: string; name: string; icon?: string; kind: WalletKind; role?: string; initial: any }
@@ -16,6 +17,10 @@ export interface Session {
   option: WalletOption;
   api: ConnectedAPI;
   endpoints: Endpoints;
+  /** Raw getConfiguration() result (null if the wallet does not implement it). */
+  config: WalletConfiguration | null;
+  /** Wallet capabilities seen at connect time, for the dashboard diagnostics panel. */
+  caps: { getProvingProvider: boolean; getDustBalance: boolean; apiVersion: string | null; rdns: string | null };
   shieldedAddress: string;
   coinPublicKey: string;
   encryptionPublicKey: string;
@@ -23,7 +28,7 @@ export interface Session {
   providers: (kind: ContractKind) => Promise<any>;
 }
 
-export interface Balances { shielded: Record<string, bigint>; dust: bigint | null; updatedAt: number }
+export interface Balances { shielded: Record<string, bigint>; unshielded: Record<string, bigint>; dust: bigint | null; dustCap: bigint | null; updatedAt: number }
 
 interface WalletState {
   options: WalletOption[];
@@ -32,6 +37,8 @@ interface WalletState {
   connecting: string | null;
   error: string | null;
   balances: Balances | null;
+  /** How the last transaction is being proved: in the wallet, or on the proof server (and why). */
+  proving: { mode: ProvingMode; why: string | null } | null;
   connect: (o: WalletOption) => Promise<Session | null>;
   disconnect: () => void;
   refreshBalances: () => Promise<void>;
@@ -40,10 +47,11 @@ interface WalletState {
 
 const Ctx = createContext<WalletState | null>(null);
 
+// 1AM: window.midnight['1am'], name '1AM', rdns 'com.midnight.1am'. Lace: window.midnight.mnLace.
 function kindOf(key: string, w: any): WalletKind {
-  if (key === '1am' || /1am/i.test(w?.name ?? '')) return '1am';
-  if (/lace/i.test(key) || /lace/i.test(w?.name ?? '')) return 'lace';
   if (key.startsWith('duskpad-dev-')) return 'dev';
+  if (key === '1am' || w?.rdns === 'com.midnight.1am' || /^1am$/i.test(w?.name ?? '')) return '1am';
+  if (key === 'mnLace' || /lace/i.test(key) || /lace/i.test(w?.rdns ?? '') || /lace/i.test(w?.name ?? '')) return 'lace';
   return 'other';
 }
 
@@ -65,6 +73,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [balances, setBalances] = useState<Balances | null>(null);
+  const [proving, setProving] = useState<{ mode: ProvingMode; why: string | null } | null>(null);
   const sessionRef = useRef<Session | null>(null);
 
   const rescan = useCallback(() => {
@@ -84,14 +93,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const s = sessionRef.current;
     if (!s) return;
     try {
-      const [shielded, dust] = await Promise.all([
-        s.api.getShieldedBalances(),
-        (s.api as any).getDustBalance?.().then((d: any) => d?.balance ?? null).catch(() => null) ?? null,
+      const api: any = s.api;
+      const [shielded, unshielded, dust] = await Promise.all([
+        api.getShieldedBalances(),
+        typeof api.getUnshieldedBalances === 'function' ? api.getUnshieldedBalances().catch(() => ({})) : {},
+        typeof api.getDustBalance === 'function' ? api.getDustBalance().catch(() => null) : null,
       ]);
       // Wallets differ in how they encode amounts (bigint, number or decimal string): normalize.
-      const big = (v: unknown) => { try { return BigInt(v as any); } catch { return 0n; } };
-      const sh = Object.fromEntries(Object.entries(shielded ?? {}).map(([k, v]) => [k, big(v)]));
-      setBalances({ shielded: sh, dust: dust == null ? null : big(dust), updatedAt: Date.now() });
+      const d = normalizeDust(dust);
+      setBalances({ shielded: normalizeBalances(shielded), unshielded: normalizeBalances(unshielded), dust: d?.balance ?? null, dustCap: d?.cap ?? null, updatedAt: Date.now() });
     } catch (e) {
       console.warn('balance refresh failed', e);
     }
@@ -101,25 +111,48 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setConnecting(o.key);
     setError(null);
     try {
-      const capi: ConnectedAPI = await o.initial.connect(NETWORK);
+      // Must be the first await in the click handler: Lace opens a pop-up that browsers block once
+      // the user gesture has been consumed.
+      let capi: ConnectedAPI;
+      try {
+        capi = await o.initial.connect(NETWORK);
+      } catch (e: any) {
+        const why = String(e?.reason ?? e?.message ?? e);
+        if (isRejection(e)) throw new Error(`${o.name}: connection request was rejected.`);
+        throw new Error(`${o.name} could not connect on "${NETWORK}" (${why}). Make sure the wallet is unlocked and set to the ${NETWORK_LABEL[NETWORK]} network, then try again.`);
+      }
+      const a: any = capi;
       const [cfg, sh, un] = await Promise.all([
-        capi.getConfiguration().catch(() => null),
+        typeof a.getConfiguration === 'function' ? a.getConfiguration().catch(() => null) : null,
         capi.getShieldedAddresses(),
         capi.getUnshieldedAddress(),
       ]);
-      if (cfg && cfg.networkId && cfg.networkId !== NETWORK) throw new Error(`Wallet is on ${cfg.networkId}; DuskPad is configured for ${NETWORK}.`);
-      const endpoints: Endpoints = IS_LOCAL || !cfg
-        ? localEndpoints()
-        : { indexer: cfg.indexerUri, indexerWs: cfg.indexerWsUri, prover: (cfg as any).proverServerUri ?? localEndpoints().prover };
+      const status = typeof a.getConnectionStatus === 'function' ? await a.getConnectionStatus().catch(() => null) : null;
+      const walletNet: string | undefined = cfg?.networkId ?? (status?.status === 'connected' ? status.networkId : undefined);
+      if (walletNet && walletNet !== NETWORK) {
+        throw new Error(`The wallet is on "${walletNet}" but this DuskPad build is for "${NETWORK}". Switch the wallet's network and reconnect.`);
+      }
+      // getShieldedAddresses: Bech32m per spec (Lace), raw hex (dev wallet), either accepted.
+      const keys = normalizeShieldedKeys(sh);
+      if (keys.network && keys.network !== NETWORK) throw new Error(`The wallet's shielded address is for "${keys.network}", expected "${NETWORK}".`);
+      const endpoints: Endpoints = await resolveWalletEndpoints(cfg);
       const cache = new Map<ContractKind, Promise<any>>();
       const s: Session = {
-        option: o, api: capi, endpoints,
-        shieldedAddress: sh.shieldedAddress, coinPublicKey: sh.shieldedCoinPublicKey, encryptionPublicKey: sh.shieldedEncryptionPublicKey,
+        option: o, api: capi, endpoints, config: cfg,
+        caps: {
+          getProvingProvider: typeof a.getProvingProvider === 'function',
+          getDustBalance: typeof a.getDustBalance === 'function',
+          apiVersion: o.initial?.apiVersion ?? null, rdns: o.initial?.rdns ?? null,
+        },
+        shieldedAddress: sh.shieldedAddress, coinPublicKey: keys.coinPublicKey, encryptionPublicKey: keys.encryptionPublicKey,
         unshieldedAddress: un.unshieldedAddress,
         providers: (kind) => {
           if (!cache.has(kind)) {
-            cache.set(kind, walletProviders(capi, { coinPublicKey: sh.shieldedCoinPublicKey, encryptionPublicKey: sh.shieldedEncryptionPublicKey },
-              endpoints, NETWORK, kind, { useWalletProver: o.kind !== 'dev' }));
+            cache.set(kind, walletProviders(capi, { coinPublicKey: keys.coinPublicKey, encryptionPublicKey: keys.encryptionPublicKey },
+              endpoints, NETWORK, kind, {
+                useWalletProver: o.kind !== 'dev',
+                onProvingMode: (m, why) => setProving({ mode: m, why: why ?? null }),
+              }));
           }
           return cache.get(kind)!;
         },
@@ -130,7 +163,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       void refreshBalances();
       return s;
     } catch (e: any) {
-      setError(String(e?.message ?? e));
+      setError(String(e?.reason ?? e?.message ?? e));
       return null;
     } finally {
       setConnecting(null);
@@ -141,6 +174,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     sessionRef.current = null;
     setSession(null);
     setBalances(null);
+    setProving(null);
     localStorage.removeItem('duskpad.lastWallet');
   }, []);
 
@@ -150,7 +184,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     if (tried.current || session) return;
     const last = localStorage.getItem('duskpad.lastWallet');
     const o = last ? options.find((x) => x.key === last) : undefined;
-    if (o) { tried.current = true; void connect(o); }
+    // Lace's authorization pop-up needs a user gesture, so it is never auto-connected on load.
+    if (o && o.kind !== 'lace') { tried.current = true; void connect(o); }
   }, [options, session, connect]);
 
   useEffect(() => {
@@ -160,7 +195,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [session, refreshBalances]);
 
   return (
-    <Ctx.Provider value={{ options, devAccounts, session, connecting, error, balances, connect, disconnect, refreshBalances, rescan }}>
+    <Ctx.Provider value={{ options, devAccounts, session, connecting, error, balances, proving, connect, disconnect, refreshBalances, rescan }}>
       {children}
     </Ctx.Provider>
   );

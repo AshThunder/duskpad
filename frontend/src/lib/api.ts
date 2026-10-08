@@ -34,6 +34,10 @@ export const api = {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ holderCommit: holderCommit.toString(), country, kycLevel }),
     }).then((r) => j<CredentialJSON>(r)),
+  /** Record a public-network deployment (tUSD + platform fee key). Set-once on the server. */
+  registerNetwork: (b: { tusd: { address: string; domain: string; faucetLimit: string }; platform: { feeKey: string; defaultFeeBps: number; name?: string } }) =>
+    fetch(`${API}/networks/${NETWORK}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) })
+      .then((r) => j<NetworkConfig>(r)),
   sales: () => fetch(`${API}/sales?network=${NETWORK}`).then((r) => j<SaleMeta[]>(r)),
   sale: (address: string) => fetch(`${API}/sales/${address}`).then((r) => (r.status === 404 ? null : j<SaleMeta>(r))),
   registerSale: (m: Omit<SaleMeta, 'createdAt' | 'network'>) =>

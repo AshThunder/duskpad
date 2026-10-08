@@ -49,6 +49,10 @@ export const FLOWS: Partial<Record<Action, StepDef[]>> = {
     ...CHAIN_STEPS('The constructor validates every parameter and computes fee and tranche splits with checked witness division.', 'Your wallet pays the DUST fee for deployment.'),
   ],
   finalize: CHAIN_STEPS('Anyone can finalize once the sale has ended or sold out.', 'Your wallet pays the DUST fee.'),
+  setup: [
+    { id: 'key', stage: 'local', label: 'Derive the platform fee key', detail: 'A hash of your platform master secret; the secret itself stays in this browser.', exposure: 'private' },
+    ...CHAIN_STEPS('Deploying needs no circuit proof; the wallet signs and the constructor state is published.', 'Your wallet pays the DUST fee (1AM sponsors it).'),
+  ],
   mint: CHAIN_STEPS('Mint test tUSD from the faucet contract.', 'Minted coins are delivered to your shielded address.'),
 };
 

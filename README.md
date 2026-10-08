@@ -155,29 +155,39 @@ The dev wallet bridge binds to 127.0.0.1 only and signs anything it is asked to.
 
 ## Preprod
 
-`VITE_NETWORK=preprod npm run build:web` switches the app to the Preprod indexer (`indexer.preprod.midnight.network`, API v4) and takes the proof server URL from the connected wallet. The dev wallets are hidden and 1AM or Lace are required. Before Preprod works end to end, an operator must:
+```bash
+npm run build:web:preprod      # VITE_NETWORK=preprod, output in frontend/dist-preprod
+npm run preview:web:preprod    # http://127.0.0.1:4174 (the local build keeps 4173)
+```
 
-1. Deploy `tusd.compact` on Preprod and add a `preprod` entry to `services/api/data/networks.json` (tUSD address and color, platform fee key, issuer key).
-2. Host the API somewhere the browser can reach (`VITE_API_URL`).
+The Preprod build hides the dev wallets and talks to 1AM or Lace. Endpoints come from the wallet's `getConfiguration()`; the app probes the wallet's indexer and falls back to `indexer.preprod.midnight.network` (API v4) if it does not answer, and proves in the wallet (`getProvingProvider`) or, failing that, on the wallet's proof server or the app's `/prover` proxy. The preview proxies `/api` to the DuskPad API and serves ZK assets with `Access-Control-Allow-Origin: *`.
 
-Deployments on Preprod use `mode: 'async'` (the app returns once the wallet accepts the transaction; the registry retries until the indexer sees the contract). **None of this has been run on Preprod yet**: everything here was verified on a local ledger-8 network that runs the same ledger version as Preprod.
+**One-time setup, in the app.** Open `/setup` with a connected wallet (1AM is easiest: it sponsors DUST, so an empty wallet works). It deploys `tusd.compact` with `createUnprovenDeployTx` + `submitTxAsync`, waits for the indexer, and records the tUSD address and color plus the platform fee key with `POST /api/networks/preprod`. That endpoint is set-once (replacing needs `x-admin-token` = `DUSKPAD_ADMIN_TOKEN`), checks that the contract exists on the Preprod indexer, and never accepts the local `undeployed` config. The platform master secret is shown to save and kept in the browser for the Platform page.
+
+**Test funds.** 1AM: none needed for fees (sponsored); tUSD is minted in the app. Lace (and 1AM if you prefer its own DUST): tNIGHT from https://faucet.preprod.midnight.network/ (Cloudflare Turnstile, which passed automatically in the box browser), then designate it for DUST in the wallet. Lace's proof server must be Local (`localhost:6300`, proof server 8.1.0 on the box).
+
+Deploys on Preprod return once the transaction is submitted and confirm by polling the indexer for the contract; the registry listing retries until the indexer sees it. Public-network contract-state queries use a direct `contractAction(address)` query (with the stock Midnight.js query as fallback). The full browser script is in [`docs/desktop-testing.md`](docs/desktop-testing.md).
+
+**Real wallets on the local node.** 1AM (6.3.24) and Lace both offer an "Undeployed" network on `localhost:8088/9944/6300`, which is this repo's local stack. Fund the wallet's `mn_addr_undeployed1…` address with `npm run fund:local -- <address>`, register DUST in the wallet, and use the local build on 4173.
 
 ## Wallets
 
-- **1AM** (primary) and **Lace** are discovered through `window.midnight` (DApp Connector API v4). The app calls `connect(networkId)`, `getConfiguration`, `getShieldedAddresses`, `balanceUnsealedTransaction`, `submitTransaction`, and `getProvingProvider` when available (1AM proves inside the extension).
+- **1AM** (primary) and **Lace** are discovered through `window.midnight` (DApp Connector API v4) and listed in that order. The app calls `connect(networkId)` first in the click handler (Lace needs the user gesture for its pop-up), then `getConfiguration`, `getShieldedAddresses`, `getUnshieldedAddress`, balances, `balanceUnsealedTransaction`, `submitTransaction`, and `getProvingProvider` when available.
+- Wallet encodings differ, so the SDK normalises them: shielded keys as hex (dev wallets) or Bech32m (`mn_shield-cpk_…`, `mn_shield-epk_…`, per the v4 spec and Lace), cross-checked with the shielded address; balances as bigint, number or decimal string; DUST as `{ balance, cap }`; wallet errors with `code`/`reason` (a rejection never triggers a silent fallback).
 - **Dev wallets** (local only) implement the same interface over HTTP, using testkit-js `DAppConnectorWalletAdapter` on real headless wallets.
-- **Verified:** the DApp Connector code path (deploy, mint, private buy) in the e2e suite (W-1..W-3) and every browser flow with dev wallets.
-- **Not yet verified:** the real 1AM and Lace extensions, which need a desktop browser session. See the checklist in [`docs/desktop-testing.md`](docs/desktop-testing.md).
+- **Verified:** the DApp Connector code path (deploy, mint, private buy) in the e2e suite (W-1..W-3), every browser flow with dev wallets, and a headless Preprod smoke test with a stub extension that answers like 1AM/Lace (`node e2e/ui/preprod-smoke.mjs`: Bech32m keys, dead wallet indexer, missing proving provider, wrong network).
+- **Not yet verified:** the real 1AM and Lace extensions on Preprod, which need a person at a desktop browser. See [`docs/desktop-testing.md`](docs/desktop-testing.md).
 
 ## Tests
 
 | Suite | Command | What it covers | Result |
 |---|---|---|---|
 | Contract simulator | `npm test -w @duskpad/contracts` | 51 sale + 3 tUSD tests on the compiled contract, in-process (every assertion message, caps, phases, fee and tranche math, auditor records) | **54 / 54** |
-| SDK unit | `npm test -w @duskpad/sdk` | Credentials, derivations, backups (wrong passphrase, tampering), schedule math, address parsing | **16 / 16** |
-| API | `npm test -w @duskpad/api` | Mock issuer validation and signatures, registry validation | **5 / 5** |
+| SDK unit | `npm test -w @duskpad/sdk` | Credentials, derivations, backups (wrong passphrase, tampering), schedule math, address parsing, wallet-connector normalisation (Bech32m vs hex keys, balance encodings, DUST shape, rejection detection, prover fallback) | **21 / 21** |
+| API | `npm test -w @duskpad/api` | Mock issuer validation and signatures, registry validation, public-network registration guards | **7 / 7** |
 | End-to-end matrix | `npm run e2e` | The 44-row feasibility matrix reproduced on DuskPad's contracts plus 3 extras, real proofs and transactions on the local stack | **47 / 47** (44/44 matrix rows + 3 extras) |
 | Browser flow | `npm run e2e:ui` | Playwright drives the production build with dev wallets: 2 sales, credentials, 4 buys, cap and region checks, finalize both ways, refund, withdraw, fee collection, backup export/import, fresh-wallet claim, report, auditor view | **19 / 19** steps |
+| Preprod wallet smoke | `node e2e/ui/preprod-smoke.mjs` | The Preprod build with a stub extension that answers like 1AM/Lace (no signing): wallet order, Bech32m keys, dead wallet indexer replaced, proof-server choice, DUST display, setup page, wrong-network error | **10 / 10** |
 
 The latest e2e report is in [`e2e/reports/LATEST.md`](e2e/reports/LATEST.md) (raw: `LATEST.json`); the browser-flow results are in `e2e/reports/UI-LATEST.json`. The browser flow is resumable (`RESUME=1 npm run e2e:ui`) because each persona keeps a persistent browser profile holding its private vault.
 

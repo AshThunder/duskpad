@@ -7,7 +7,7 @@ import { Dialog, Notice, Spinner } from './ui';
 
 const INSTALL = [
   { name: '1AM', kind: '1am', url: 'https://1am.xyz', blurb: 'Recommended. Proves in the wallet and sponsors DUST fees.' },
-  { name: 'Lace', kind: 'lace', url: 'https://www.lace.io', blurb: 'Midnight-enabled Lace wallet.' },
+  { name: 'Lace', kind: 'lace', url: 'https://www.lace.io', blurb: IS_LOCAL ? 'Midnight-enabled Lace wallet (set its network to Undeployed).' : 'Needs tNIGHT from the faucet, registered DUST, and a local proof server (Settings → Midnight → Local).' },
 ] as const;
 
 export function WalletModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -87,6 +87,9 @@ export function WalletModal({ open, onClose }: { open: boolean; onClose: () => v
             )}
             <p className="text-[12px] text-on-surface-variant mt-2">Headless wallets exposed through the same ConnectedAPI the extensions implement. They sign anything asked, so they never run outside localhost.</p>
           </div>
+        )}
+        {!IS_LOCAL && (
+          <p className="text-[12px] text-on-surface-variant mt-4">Set the wallet's network to <b>{NETWORK_LABEL[NETWORK]}</b> (<code>{NETWORK}</code>) before connecting. Test funds: <a className="underline" href="https://faucet.preprod.midnight.network/" target="_blank" rel="noreferrer">Preprod faucet</a> (tNIGHT); DUST comes from registering tNIGHT in the wallet.</p>
         )}
         {error && <div className="mt-4"><Notice tone="error">{error}</Notice></div>}
         <div className="mt-6 flex justify-end"><button className="btn-ghost" onClick={onClose}>Close</button></div>

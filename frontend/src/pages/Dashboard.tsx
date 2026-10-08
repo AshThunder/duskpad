@@ -6,8 +6,8 @@ import {
   Activity, ArchiveRestore, Coins, Download, Eye, EyeOff, FolderLock, KeyRound, Link2, Plus, ShieldCheck, Ticket, Upload, Wallet,
 } from 'lucide-react';
 import {
-  adminKeyOf, deriveAdminSecret, formatUnits, fromHex, recoverTickets, saleTokenColor, toHex, trancheSchedule, type EncryptedBackup,
-} from '@duskpad/sdk';
+  adminKeyOf, deriveAdminSecret, formatUnits, fromHex, recoverTickets, saleTokenColor, toHex, trancheSchedule, type EncryptedBackup, balanceOf } from '@duskpad/sdk';
+import { IS_LOCAL, NETWORK } from '../lib/config';
 import { toast } from 'sonner';
 import { useSales, useSaleViews, useNow, saleStatus, STATUS_LABEL, fmtDate } from '../lib/sales';
 import { useTxFlow } from '../lib/txflow';
@@ -19,9 +19,12 @@ import { PrivacyStepper } from '../components/PrivacyStepper';
 import { WalletModal } from '../components/WalletModal';
 import { Dialog, Empty, Notice, Row, Spinner, Stat } from '../components/ui';
 
+/** Unshielded NIGHT's raw token type. */
+const NIGHT = '0'.repeat(64);
+
 export function Dashboard() {
   const { network } = useApp();
-  const { session, balances, refreshBalances } = useWallet();
+  const { session, balances, refreshBalances, proving } = useWallet();
   const vault = useVault();
   const { sales } = useSales();
   const { views, reload } = useSaleViews((sales ?? []).map((s) => s.address));
@@ -60,7 +63,7 @@ export function Dashboard() {
     );
   }
 
-  const tusd = network ? balances?.shielded?.[network.tusd.color] ?? 0n : 0n;
+  const tusd = network ? balanceOf(balances?.shielded, network.tusd.color) : 0n;
   const tickets = rows.reduce((n, r) => n + r.tickets.length, 0);
   const onFaucet = async () => {
     const r = await flow.run('mint', (onStage) => mintTusd(session, network!.tusd.address, 5_000_000_000n, onStage));
@@ -90,7 +93,8 @@ export function Dashboard() {
         <div className="bg-mint rounded-card p-6"><Stat label="Shielded tUSD" value={<span data-testid="dash-tusd">{formatUnits(tusd)}</span>} /></div>
         <div className="bg-lilac rounded-card p-6"><Stat label="Tickets held" value={<span data-testid="dash-tickets">{tickets}</span>} sub={`across ${rows.filter((r) => r.tickets.length).length} sales`} /></div>
         <div className="bg-butter rounded-card p-6"><Stat label="Claimable now" value={rows.reduce((n, r) => n + r.claimable, 0)} sub="tranches" /></div>
-        <div className="bg-blush rounded-card p-6"><Stat label="DUST" value={balances?.dust != null ? formatUnits(balances.dust, 15) : '—'} sub="pays transaction fees" /></div>
+        <div className="bg-blush rounded-card p-6"><Stat label="DUST" value={<span data-testid="dash-dust">{balances?.dust != null ? formatUnits(balances.dust, 15) : '—'}</span>}
+          sub={session.option.kind === '1am' && !IS_LOCAL ? 'fees sponsored by 1AM' : `pays fees · tNIGHT ${formatUnits(balanceOf(balances?.unshielded, NIGHT), 6)}`} /></div>
       </section>
 
       <div className="grid lg:grid-cols-[1fr_380px] gap-8 items-start">
@@ -108,7 +112,7 @@ export function Dashboard() {
                   </tr></thead>
                   <tbody>{rows.map((r) => {
                     const st = saleStatus(r.view, now / 1000);
-                    const tok = balances?.shielded?.[saleTokenColor(r.view.tokenDomain, r.meta.address)] ?? 0n;
+                    const tok = balanceOf(balances?.shielded, saleTokenColor(r.view.tokenDomain, r.meta.address));
                     return (
                       <tr key={r.meta.address} className="border-t border-outline-variant/60">
                         <td className="px-2 py-3"><div className="font-bold">{r.meta.symbol}</div><div className="text-on-surface-variant text-[12px]">{r.meta.name}</div></td>
@@ -180,6 +184,18 @@ export function Dashboard() {
             <h2 className="font-display text-[19px] font-bold flex items-center gap-2"><Coins size={18} className="text-primary" /> Test funds</h2>
             <p className="text-on-surface-variant text-[14px]">tUSD is a test stablecoin contract with a faucet ({network ? formatUnits(BigInt(network.tusd.faucetLimit)) : '…'} per mint).</p>
             <button className="btn-dark w-full" onClick={() => void onFaucet()} disabled={flow.running || !network} data-testid="dash-faucet">{flow.running ? <Spinner /> : <Coins size={16} />} Mint 5,000 tUSD</button>
+            {!network && !IS_LOCAL && <p className="text-[13px]">tUSD is not deployed on this network yet. <Link className="underline" to="/setup">Run the one-time setup</Link>.</p>}
+          </section>
+
+          <section className="card p-7 space-y-2 text-[13px]" data-testid="wallet-diagnostics">
+            <h2 className="font-display text-[19px] font-bold">Wallet connection</h2>
+            <Row k="Wallet" v={`${session.option.name}${session.caps.apiVersion ? ` · API ${session.caps.apiVersion}` : ''}`} />
+            <Row k="Network" v={NETWORK} />
+            <Row k="Wallet proving" v={session.caps.getProvingProvider ? 'supported' : 'not offered'} />
+            <Row k="Last proof" v={proving ? (proving.mode === 'wallet' ? 'in the wallet' : 'proof server') : '—'} />
+            <Row k="Indexer" v={session.endpoints.source?.indexer ?? 'app'} />
+            <Row k="Proof server" v={`${session.endpoints.source?.prover ?? 'app'} · ${session.endpoints.prover.replace(/^https?:\/\//, '')}`} />
+            {proving?.why && <p className="text-on-surface-variant break-words">Fallback reason: {proving.why}</p>}
           </section>
         </aside>
       </div>

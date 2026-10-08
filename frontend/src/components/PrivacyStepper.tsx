@@ -9,7 +9,7 @@ import type { Step } from '../lib/txflow';
 
 const TITLES: Partial<Record<Action, string>> = {
   buy: 'Buying a ticket privately', refund: 'Claiming your refund privately', claim: 'Claiming vested tokens',
-  withdraw: 'Withdrawing proceeds', collectFee: 'Collecting platform fees', deploy: 'Deploying your sale', finalize: 'Finalizing the sale', mint: 'Minting test tUSD',
+  withdraw: 'Withdrawing proceeds', collectFee: 'Collecting platform fees', deploy: 'Deploying your sale', finalize: 'Finalizing the sale', mint: 'Minting test tUSD', setup: 'Deploying tUSD for this network',
 };
 
 export function PrivacyStepper({ action, steps, error, compact = false }: { action: Action; steps: Step[]; error?: string | null; compact?: boolean }) {

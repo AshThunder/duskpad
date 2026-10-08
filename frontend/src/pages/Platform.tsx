@@ -3,8 +3,9 @@
 import { useMemo, useState } from 'react';
 import { Building2, Coins, KeyRound, Wallet } from 'lucide-react';
 import { adminKeyOf, derivePlatformSecret, formatUnits, fromHex, toHex } from '@duskpad/sdk';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { IS_LOCAL } from '../lib/config';
+import { IS_LOCAL, PLATFORM_MASTER_KEY } from '../lib/config';
 import { devPlatformMaster } from '../lib/devWallet';
 import { useSales, useSaleViews } from '../lib/sales';
 import { useTxFlow } from '../lib/txflow';
@@ -51,11 +52,12 @@ export function Platform() {
         <div className="flex gap-2">
           <input className="input font-mono !text-[13px]" type="password" placeholder="64-hex platform master secret" value={master} onChange={(e) => setMaster(e.target.value.trim())} data-testid="platform-master" />
           {IS_LOCAL && <button className="btn-light shrink-0" onClick={async () => { const m = await devPlatformMaster(); if (m) setMaster(m); else toast.error('Dev wallet bridge not running'); }} data-testid="load-dev-master">Load dev key</button>}
+          {!IS_LOCAL && <button className="btn-light shrink-0" onClick={() => { const m = localStorage.getItem(PLATFORM_MASTER_KEY); if (m) setMaster(m); else toast.error('No platform secret saved in this browser (it is created on the Setup page).'); }} data-testid="load-saved-master">Load saved key</button>}
         </div>
         {key && (network && key === network.platform.feeKey
           ? <Notice tone="ok">Matches the {network.platform.name} fee key <Hex value={key} /></Notice>
           : <Notice tone="warn">Derived fee key <Hex value={key} /> does not match this network's default platform.</Notice>)}
-        <p className="text-[12px] text-on-surface-variant">Held only in memory on this page.{IS_LOCAL && ' On the local devnet the dev bridge exposes a deterministic test key.'}</p>
+        <p className="text-[12px] text-on-surface-variant">Held only in memory on this page.{IS_LOCAL ? ' On the local devnet the dev bridge exposes a deterministic test key.' : <> The secret for this network is chosen on the <Link className="underline" to="/setup">Setup page</Link>.</>}</p>
       </section>
 
       {flow.action && (flow.running || flow.error) && <div className="max-w-xl"><PrivacyStepper action="collectFee" steps={flow.steps} error={flow.error} />{flow.error && <button className="btn-light mt-3" onClick={flow.reset}>Dismiss</button>}</div>}

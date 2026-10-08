@@ -6,7 +6,7 @@
 // on How It Works and in the per-action stepper, so the product never claims more privacy
 // than was observed.
 
-export type Action = 'deploy' | 'buy' | 'finalize' | 'refund' | 'withdraw' | 'collectFee' | 'claim' | 'mint';
+export type Action = 'deploy' | 'buy' | 'finalize' | 'refund' | 'withdraw' | 'collectFee' | 'claim' | 'mint' | 'setup';
 
 export interface Visibility {
   action: Action;

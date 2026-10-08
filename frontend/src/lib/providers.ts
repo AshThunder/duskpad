@@ -7,16 +7,29 @@ import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { ContractState } from '@midnight-ntwrk/compact-runtime';
-import { connectorProofProvider, connectorWalletProviders } from '@duskpad/sdk';
+import { LedgerParameters, ZswapChainState } from '@midnight-ntwrk/ledger-v8';
+import { connectorProofProvider, connectorWalletProviders, proofProviderWithFallback } from '@duskpad/sdk';
 import type { ConnectedAPI } from '@midnight-ntwrk/dapp-connector-api';
 import { fromHex } from './hex';
 import { IS_LOCAL, type Endpoints } from './config';
 
 export type ContractKind = 'sale' | 'tusd';
 
+async function latestAction(indexer: string, query: string, address: string) {
+  const r = await fetch(indexer, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query, variables: { a: address } }),
+  });
+  if (!r.ok) throw new Error(`Indexer HTTP error: ${r.status}`);
+  const j = await r.json();
+  if (j?.errors?.length) throw new Error(j.errors.map((e: any) => e.message).join('; '));
+  return j?.data?.contractAction ?? null;
+}
+
 /**
- * Public data provider. On Preprod the latest-state queries are routed through
- * `contractAction { state }` (the 1AM integration notes report `offset: null` issues there).
+ * Public data provider. On Preprod the latest-state queries go through `contractAction(address)`
+ * without an offset, as the 1AM integration notes recommend (the preview/preprod indexers have had
+ * an `offset: null` bug). If that direct query fails, the stock Midnight.js query is tried.
  */
 export function publicDataProvider(ep: Endpoints) {
   const base: any = indexerPublicDataProvider(ep.indexer, ep.indexerWs);
@@ -25,17 +38,35 @@ export function publicDataProvider(ep: Endpoints) {
     ...base,
     async queryContractState(address: string, config?: unknown) {
       if (config) return base.queryContractState(address, config);
-      const r = await fetch(ep.indexer, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ query: 'query($a: HexEncoded!){ contractAction(address: $a) { state } }', variables: { a: address } }),
-      });
-      const j = await r.json();
-      const s = j?.data?.contractAction?.state;
-      return s ? ContractState.deserialize(fromHex(s)) : null;
+      try {
+        const a = await latestAction(ep.indexer, 'query($a: HexEncoded!){ contractAction(address: $a) { state } }', address);
+        return a?.state ? ContractState.deserialize(fromHex(a.state)) : null;
+      } catch (e) {
+        console.warn('[duskpad] direct contract-state query failed, using Midnight.js query', e);
+        return base.queryContractState(address);
+      }
+    },
+    async queryZSwapAndContractState(address: string, config?: unknown) {
+      if (config) return base.queryZSwapAndContractState(address, config);
+      try {
+        const a = await latestAction(ep.indexer,
+          'query($a: HexEncoded!){ contractAction(address: $a) { state zswapState transaction { block { ledgerParameters } } } }', address);
+        if (!a?.zswapState) return null;
+        const params = a.transaction?.block?.ledgerParameters;
+        return [
+          ZswapChainState.deserialize(fromHex(a.zswapState)),
+          ContractState.deserialize(fromHex(a.state)),
+          params ? LedgerParameters.deserialize(fromHex(params)) : LedgerParameters.initialParameters(),
+        ];
+      } catch (e) {
+        console.warn('[duskpad] direct zswap+contract query failed, using Midnight.js query', e);
+        return base.queryZSwapAndContractState(address);
+      }
     },
   };
 }
 
+/** ZK assets are served by the app itself (`/zk/<kind>/{keys,zkir}`), with CORS enabled by the preview server. */
 export function zkConfig(kind: ContractKind) {
   return new FetchZkConfigProvider(new URL(`/zk/${kind}`, window.location.origin).toString(), window.fetch.bind(window));
 }
@@ -63,17 +94,29 @@ export function memoryPrivateStateProvider() {
 }
 
 export interface WalletKeys { coinPublicKey: string; encryptionPublicKey: string }
+export type ProvingMode = 'wallet' | 'proof-server';
 
+/**
+ * Providers for one contract kind. Proving order: the wallet's getProvingProvider (1AM in-extension
+ * or ProofStation; newer Lace builds proxy to Lace's proof-server setting), then the proof server in
+ * `ep.prover` if the wallet lacks the method or its prover fails for a technical reason.
+ */
 export async function walletProviders(api: ConnectedAPI, keys: WalletKeys, ep: Endpoints, networkId: string, kind: ContractKind,
-  opts: { useWalletProver: boolean }) {
+  opts: { useWalletProver: boolean; onProvingMode?: (m: ProvingMode, why?: string) => void }) {
   setNetworkId(networkId as any);
   const zk = zkConfig(kind);
-  let proofProvider: any = null;
+  let walletProof: any = null;
   if (opts.useWalletProver) {
-    try { proofProvider = await connectorProofProvider(api as any, zk); }
-    catch (e) { console.warn('[duskpad] wallet proving unavailable, falling back to proof server', e); }
+    try { walletProof = await connectorProofProvider(api as any, zk); }
+    catch (e) { console.warn('[duskpad] wallet proving unavailable, using the proof server', e); }
   }
-  proofProvider ??= httpClientProofProvider(ep.prover, zk);
+  let server: any = null;
+  const serverProof = () => (server ??= httpClientProofProvider(ep.prover, zk));
+  opts.onProvingMode?.(walletProof ? 'wallet' : 'proof-server', walletProof ? undefined : 'wallet has no getProvingProvider');
+  const proofProvider = proofProviderWithFallback(walletProof, serverProof, (e) => {
+    console.warn('[duskpad] wallet prover failed, retrying on the proof server', e);
+    opts.onProvingMode?.('proof-server', String((e as any)?.message ?? e));
+  });
   return {
     privateStateProvider: memoryPrivateStateProvider(),
     publicDataProvider: publicDataProvider(ep),
