@@ -76,7 +76,17 @@ export interface WalletConfiguration { networkId?: string; indexerUri?: string; 
  * Preprod endpoints from the wallet's getConfiguration(), each one probed and replaced by a
  * working default if it does not answer from this page.
  */
-export async function resolveWalletEndpoints(cfg: WalletConfiguration | null): Promise<Endpoints> {
+/**
+ * True for prover URLs that are not a Midnight proof server and must not be probed: 1AM reports its
+ * ProofStation (api*.1am.xyz, API-key protected, no /version) as proverServerUri, and its docs say the
+ * field is not needed with getProvingProvider. Probing it only produces a 404 in the console.
+ */
+export function skipProverProbe(url: string, walletProves = false): boolean {
+  if (walletProves) return true;
+  try { return /(^|\.)1am\.xyz$/i.test(new URL(url).hostname); } catch { return true; }
+}
+
+export async function resolveWalletEndpoints(cfg: WalletConfiguration | null, opts: { walletProves?: boolean } = {}): Promise<Endpoints> {
   if (IS_LOCAL) return localEndpoints();
   const out = preprodDefaultEndpoints();
   const src = { indexer: 'default' as 'wallet' | 'default', prover: 'app' as 'wallet' | 'app' };
@@ -87,7 +97,8 @@ export async function resolveWalletEndpoints(cfg: WalletConfiguration | null): P
   }
   // The deprecated proverServerUri is how Lace exposes its "local proof server" setting.
   // Prefer it when it answers from the page; otherwise use the app's same-origin proxy.
-  if (cfg?.proverServerUri && /^https?:/.test(cfg.proverServerUri) && await proverAnswers(cfg.proverServerUri)) {
+  if (cfg?.proverServerUri && /^https?:/.test(cfg.proverServerUri) && !skipProverProbe(cfg.proverServerUri, opts.walletProves)
+    && await proverAnswers(cfg.proverServerUri)) {
     out.prover = cfg.proverServerUri.replace(/\/$/, '');
     src.prover = 'wallet';
   }

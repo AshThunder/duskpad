@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, EyeOff, FileSearch, Globe, KeyRound, RefreshCw } from 'lucide-react';
-import { decodeTxEffects, decryptAuditRecord, fetchSaleActivity, formatUnits, type ActivityItem, type TxEffects } from '@duskpad/sdk';
+import { decodeTxEffects, decryptAuditRecord, fetchSaleActivity, formatUnits, type ActivityInfo, type ActivityItem, type TxEffects } from '@duskpad/sdk';
 import { publicEndpoints } from '../lib/config';
 import { useSale, saleStatus, STATUS_LABEL, useNow } from '../lib/sales';
 import { useVault } from '../state/VaultContext';
@@ -19,11 +19,16 @@ export function SaleReport() {
   const [acts, setActs] = useState<ActivityItem[] | null>(null);
   const [actErr, setActErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [actInfo, setActInfo] = useState<ActivityInfo | null>(null);
 
   const load = async () => {
     setLoading(true);
-    try { setActs(await fetchSaleActivity(publicEndpoints().indexer, address, 500, true)); setActErr(null); }
-    catch (e: any) { setActErr(e.message); } finally { setLoading(false); }
+    try { setActs(await fetchSaleActivity(publicEndpoints().indexer, address, 500, true, { onInfo: setActInfo })); setActErr(null); }
+    catch (e: any) {
+      console.warn('[duskpad] activity query failed', e);
+      // Keep the last good list; only show an error when there is nothing to show.
+      setActErr(`Could not read this sale's activity from the indexer (${String(e?.message ?? e).slice(0, 160)}). Retrying every 15 s.`);
+    } finally { setLoading(false); }
   };
   useEffect(() => { void load(); const id = setInterval(() => void load(), 15_000); return () => clearInterval(id); /* eslint-disable-next-line */ }, [address]);
 
@@ -67,7 +72,8 @@ export function SaleReport() {
       <div className="grid lg:grid-cols-[1fr_360px] gap-8 items-start">
         <section className="card p-7 min-w-0">
           <h2 className="font-display text-[22px] font-bold mb-4 flex items-center gap-2"><Globe size={20} className="text-primary" /> On-chain activity</h2>
-          {actErr && <Notice tone="error">{actErr}</Notice>}
+          {actErr && !acts && <Notice tone="error">{actErr}</Notice>}
+          {actInfo?.truncated && <p className="text-[13px] text-on-surface-variant mb-3" data-testid="report-truncated">Showing activity from the last {actInfo.blocksScanned?.toLocaleString()} blocks; older history is not loaded.</p>}
           {!acts ? <Skeleton className="h-48" /> : (
             <ul className="divide-y divide-outline-variant/60" data-testid="report-activity">
               {acts.map((a) => <ActivityRow key={a.txHash + a.entryPoint} a={a} />)}

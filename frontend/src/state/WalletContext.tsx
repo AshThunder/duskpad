@@ -136,7 +136,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // getShieldedAddresses: Bech32m per spec (Lace), raw hex (dev wallet), either accepted.
       const keys = normalizeShieldedKeys(sh);
       if (keys.network && keys.network !== NETWORK) throw new Error(`The wallet's shielded address is for "${keys.network}", expected "${NETWORK}".`);
-      const endpoints: Endpoints = await resolveWalletEndpoints(cfg);
+      const endpoints: Endpoints = await resolveWalletEndpoints(cfg, { walletProves: o.kind === '1am' && typeof a.getProvingProvider === 'function' });
       const cache = new Map<ContractKind, Promise<any>>();
       const s: Session = {
         option: o, api: capi, endpoints, config: cfg,
