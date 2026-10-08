@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 const BASE = process.env.BASE ?? 'http://127.0.0.1:4173'; // vite preview of the production build
 const SHOTS = process.env.SHOTS ?? '/workspace/duskpad-shots';
 const CHROME = process.env.CHROME ?? '/usr/bin/google-chrome';
-const SALE_MIN = Number(process.env.SALE_MIN ?? 12);
+const SALE_MIN = Number(process.env.SALE_MIN ?? 7);
 mkdirSync(SHOTS, { recursive: true });
 
 const t0 = Date.now();
@@ -209,7 +209,7 @@ try {
     await carol.waitForTimeout(2500);
     await shot(carol, 'refund-stepper');
     await waitTx(carol); await shot(carol, 'refund-done'); await closeOutcome(carol);
-    await carol.getByText('Refunded').waitFor({ timeout: 120_000 });
+    await carol.getByText('Refunded', { exact: true }).first().waitFor({ timeout: 120_000 });
   });
   await step('project withdraws one ticket of proceeds net of the fee', async () => {
     await project.goto(`${BASE}/sale/${saleA}`);
