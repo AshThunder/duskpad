@@ -50,6 +50,7 @@ export function SaleReport() {
           <span className="tag-terminal">[ PUBLIC REPORT · NO WALLET NEEDED ]</span>
           <h1 className="font-display text-display-md md:text-display-lg mt-4">{meta?.symbol ?? 'Sale'} report</h1>
           <p className="text-on-surface-variant mt-2 max-w-2xl">Everything below is read from the public indexer: exactly what any observer of Midnight can see about this sale.</p>
+          <p className="text-on-surface-variant mt-2 text-[13px] flex items-center gap-2">Contract <Hex value={address} chars={10} explore="contract" /></p>
         </div>
         <button className="btn-light" onClick={() => void load()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw size={16} />} Refresh</button>
       </header>
@@ -119,7 +120,7 @@ function ActivityRow({ a }: { a: ActivityItem }) {
       </button>
       {open && (
         <div className="mt-3 panel p-4 text-[13px] grid sm:grid-cols-2 gap-x-6 gap-y-1.5">
-          <div>Tx <Hex value={a.txHash} /></div>
+          <div>Tx <Hex value={a.txHash} explore="tx" /></div>
           <div>Status <b>{a.status}</b></div>
           {a.fee && <div>Fee {formatUnits(BigInt(a.fee), 15, 6)} DUST</div>}
           {eff === undefined ? <div><Spinner size={13} /></div> : eff === null ? <div>Could not decode</div> : (<>

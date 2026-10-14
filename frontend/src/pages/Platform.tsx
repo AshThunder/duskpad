@@ -36,7 +36,7 @@ export function Platform() {
     if (!v || !session) return;
     const r = await flow.run('collectFee', (onStage, markLocal) => collectFeeCoin(session, address, fromHex(master), v.feeVault[0], ownPayout(session), onStage, markLocal));
     await Promise.all([reload(), refreshBalances()]);
-    if (r) { toast.success(`Collected ${formatUnits(v.feeVault[0].value)} tUSD`); flow.reset(); }
+    if (r) { toast.success(<span className="flex items-center gap-2">Collected {formatUnits(v.feeVault[0].value)} tUSD {r.txHash && <Hex value={r.txHash} chars={6} explore="tx" />}</span>); flow.reset(); }
   };
 
   return (
@@ -76,7 +76,7 @@ export function Platform() {
               <thead><tr className="label-mono text-on-surface-variant text-left"><th className="py-2">Sale</th><th>Fee</th><th>Fee vault</th><th>Collected</th><th></th></tr></thead>
               <tbody>{rows.map(({ meta, view }) => (
                 <tr key={meta.address} className="border-t border-outline-variant/60">
-                  <td className="py-3"><b>{meta.symbol}</b> <span className="text-on-surface-variant">{meta.name}</span></td>
+                  <td className="py-3"><b>{meta.symbol}</b> <span className="text-on-surface-variant">{meta.name}</span><div><Hex value={meta.address} chars={6} explore="contract" className="!text-[12px] text-on-surface-variant" /></div></td>
                   <td>{(view!.feeBps / 100).toFixed(2)}%</td>
                   <td className="font-mono">{view!.feeVault.length} × {formatUnits(view!.feePerTicket)}</td>
                   <td className="font-mono">{view!.feeCoinsCollected}</td>

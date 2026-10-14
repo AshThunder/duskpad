@@ -102,7 +102,7 @@ export function Setup() {
         <Notice tone="ok">
           <div className="space-y-1" data-testid="setup-done">
             <p className="font-bold flex items-center gap-2"><CheckCircle2 size={16} /> {NETWORK_LABEL} is configured.</p>
-            <p>tUSD contract: <Hex value={network.tusd.address} /> · token color <Hex value={network.tusd.color} /></p>
+            <p>tUSD contract: <Hex value={network.tusd.address} explore="contract" /> · token color <Hex value={network.tusd.color} /></p>
             <p>Platform fee key: <Hex value={network.platform.feeKey} /> · default fee {network.platform.defaultFeeBps / 100}%</p>
             <p className="pt-1"><Link className="underline" to="/dashboard">Mint test tUSD on the dashboard</Link> · <Link className="underline" to="/create">Launch a sale</Link></p>
           </div>

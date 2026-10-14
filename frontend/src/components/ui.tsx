@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Chris Gold
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, Copy, Loader2, ShieldAlert } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2, ShieldAlert } from 'lucide-react';
 import { shortHex } from '../lib/hex';
+import { explorerUrl, type ExplorerKind } from '../lib/config';
 
 export function Spinner({ size = 16, label = 'Working' }: { size?: number; label?: string }) {
   return <Loader2 size={size} className="spin shrink-0" role="status" aria-label={label} />;
 }
 
-export function Hex({ value, chars = 8, className = '' }: { value: string; chars?: number; className?: string }) {
+export function Hex({ value, chars = 8, className = '', explore }: { value: string; chars?: number; className?: string; explore?: ExplorerKind }) {
   const [copied, setCopied] = useState(false);
-  return (
+  const href = explore ? explorerUrl(explore, value) : null;
+  const copy = (
     <button
       type="button"
       title={value}
@@ -21,6 +23,16 @@ export function Hex({ value, chars = 8, className = '' }: { value: string; chars
       <span>{shortHex(value, chars)}</span>
       {copied ? <Check size={13} className="text-success" /> : <Copy size={13} className="opacity-50" />}
     </button>
+  );
+  if (!href) return copy;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {copy}
+      <a href={href} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center opacity-60 hover:opacity-100 hover:text-primary ${className}`}
+        title={`View ${explore === 'tx' ? 'transaction' : 'contract'} on Midnight Explorer`} aria-label={`View ${explore === 'tx' ? 'transaction' : 'contract'} on explorer`} data-testid={`explorer-${explore}`}>
+        <ExternalLink size={13} />
+      </a>
+    </span>
   );
 }
 

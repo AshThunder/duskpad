@@ -110,3 +110,15 @@ export async function resolveWalletEndpoints(cfg: WalletConfiguration | null, op
 }
 
 export const NETWORK_LABEL: Record<NetworkId, string> = { undeployed: 'Local devnet', preprod: 'Midnight Preprod' };
+
+/** Block explorer for the active network. Local devnet has none, so no links are shown there.
+ *  Override with VITE_EXPLORER_URL (empty string disables). Patterns: /transactions/<hash>, /contracts/<address>. */
+const EXPLORERS: Record<NetworkId, string> = { undeployed: '', preprod: 'https://preprod.midnightexplorer.com' };
+export const EXPLORER: string = (import.meta.env.VITE_EXPLORER_URL ?? EXPLORERS[NETWORK]).replace(/\/$/, '');
+export type ExplorerKind = 'tx' | 'contract';
+export function explorerUrl(kind: ExplorerKind, id: string | undefined, base: string = EXPLORER): string | null {
+  if (!base || !id) return null;
+  const hex = id.replace(/^0x/, '').toLowerCase();
+  if (!/^[0-9a-f]{16,}$/.test(hex)) return null;
+  return `${base}/${kind === 'tx' ? 'transactions' : 'contracts'}/${hex}`;
+}

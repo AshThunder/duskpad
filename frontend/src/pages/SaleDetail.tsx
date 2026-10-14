@@ -155,7 +155,8 @@ export function SaleDetail() {
 
           <section className="card p-7">
             <h2 className="font-display text-[22px] font-bold mb-4 flex items-center gap-2"><Landmark size={20} className="text-primary" /> Contract</h2>
-            <Row k="Sale contract" v={<Hex value={address} chars={10} />} />
+            <Row k="Sale contract" v={<Hex value={address} chars={10} explore="contract" />} />
+            {meta?.txHash && <Row k="Deploy transaction" v={<Hex value={meta.txHash} chars={10} explore="tx" />} />}
             <Row k="Sale id" v={<Hex value={view.saleId} />} />
             <Row k="Payment token" v={<span className="flex items-center gap-2">tUSD (shielded) <Hex value={view.payColor} /></span>} />
             <Row k="Sale token color" v={<Hex value={saleTokenColor(view.tokenDomain, address)} />} />

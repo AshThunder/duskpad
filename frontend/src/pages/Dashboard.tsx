@@ -18,7 +18,7 @@ import { describeProof, useDiag } from '../lib/diag';
 import { useVault } from '../state/VaultContext';
 import { PrivacyStepper } from '../components/PrivacyStepper';
 import { WalletModal } from '../components/WalletModal';
-import { Dialog, Empty, Notice, Row, Spinner, Stat } from '../components/ui';
+import { Dialog, Empty, Hex, Notice, Row, Spinner, Stat } from '../components/ui';
 
 /** Unshielded NIGHT's raw token type. */
 const NIGHT = '0'.repeat(64);
@@ -139,7 +139,7 @@ export function Dashboard() {
                 {vault.data!.activity.slice(0, 25).map((a, i) => (
                   <li key={i} className="py-2.5 flex items-center justify-between gap-3 text-[14px]">
                     <span><span className="pill bg-surface-high !text-[11px] mr-2">{a.kind}</span>{a.detail}</span>
-                    <span className="text-on-surface-variant text-[12px] shrink-0">{new Date(a.at).toLocaleString()}</span>
+                    <span className="flex items-center gap-3 shrink-0">{a.txHash && <Hex value={a.txHash} chars={6} explore="tx" className="!text-[12px]" />}<span className="text-on-surface-variant text-[12px]">{new Date(a.at).toLocaleString()}</span></span>
                   </li>
                 ))}
               </ul>
