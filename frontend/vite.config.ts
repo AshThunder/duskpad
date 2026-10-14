@@ -39,6 +39,8 @@ export default defineConfig({
       '/prover': { target: 'http://127.0.0.1:6300', rewrite: (p) => p.replace(/^\/prover/, ''), timeout: 600_000, proxyTimeout: 600_000 },
     },
   },
+  // The Preprod preview reads the public indexer through the local API's Blockfrost proxy
+  // (start the API with BLOCKFROST_PROJECT_ID set).
   preview: {
     port: previewPort,
     strictPort: true,
@@ -48,7 +50,9 @@ export default defineConfig({
     proxy: {
       '/api': 'http://127.0.0.1:8787',
       '/dev-wallet': 'http://127.0.0.1:8797',
-      '/indexer': { target: 'http://127.0.0.1:8088', ws: true, rewrite: (p) => p.replace(/^\/indexer/, '') },
+      '/indexer': process.env.VITE_NETWORK === 'preprod'
+        ? { target: 'http://127.0.0.1:8787' }
+        : { target: 'http://127.0.0.1:8088', ws: true, rewrite: (p) => p.replace(/^\/indexer/, '') },
       '/prover': { target: 'http://127.0.0.1:6300', rewrite: (p) => p.replace(/^\/prover/, ''), timeout: 600_000, proxyTimeout: 600_000 },
     },
   },

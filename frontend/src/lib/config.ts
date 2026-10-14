@@ -32,12 +32,15 @@ export const appProver = () => import.meta.env.VITE_PREPROD_PROVER ?? `${window.
 
 /**
  * Public Preprod defaults, used for reads before a wallet connects and whenever the wallet's own
- * indexer does not answer (Lace's built-in default, blockfrost.lw.iog.io/midnight-preprod/, now
- * returns 410 Gone). The Midnight indexer serves `Access-Control-Allow-Origin: *`.
+ * indexer does not answer. Midnight's own Preprod indexer was shut down on 9 Oct 2026 and Blockfrost,
+ * which replaced it, needs a project id, so reads go to a same-origin `/indexer` proxy (the Vercel
+ * function or the local API) that adds the id server-side. Only HTTP queries are needed: Midnight.js
+ * waits for transactions and deploys by polling, so the WS URL is never dialled on these paths.
  */
+const origin = typeof window === 'undefined' ? '' : window.location.origin;
 export const PREPROD_DEFAULTS = {
-  indexer: import.meta.env.VITE_PREPROD_INDEXER ?? 'https://indexer.preprod.midnight.network/api/v4/graphql',
-  indexerWs: import.meta.env.VITE_PREPROD_INDEXER_WS ?? 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
+  indexer: import.meta.env.VITE_PREPROD_INDEXER ?? `${origin}/indexer/api/v4/graphql`,
+  indexerWs: import.meta.env.VITE_PREPROD_INDEXER_WS ?? `${origin.replace(/^http/, 'ws')}/indexer/api/v4/graphql/ws`,
 };
 
 export const preprodDefaultEndpoints = (): Endpoints => ({
