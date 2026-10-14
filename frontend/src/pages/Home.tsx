@@ -122,7 +122,7 @@ function LedgerMock() {
           </div>
         ))}
         <div className="mt-5 rounded-2xl bg-primary-fixed p-4 text-[13px] text-[#22005d]">
-          Country, KYC level, wallet, and tickets-per-person: <b>not in any transaction.</b> Example rows in Midnight format (32-byte hex, no 0x). The hidden fields were checked by decoding real transactions on a local ledger-8 network.
+          Observers see that a valid ticket was bought. <b>They don't see who bought it, where they're from, or how many tickets they hold.</b>
         </div>
       </div>
     </div>
