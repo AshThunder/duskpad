@@ -21,7 +21,7 @@ export function Home() {
       <section className="grid lg:grid-cols-2 gap-12 items-center pt-4">
         <div className="space-y-8 animate-rise">
           <span className="tag-terminal"><Lock size={13} /> [ ZERO-KNOWLEDGE LAUNCHPAD ]</span>
-          <h1 className="font-display text-[52px] md:text-display-xl text-ink">
+          <h1 className="font-display text-[52px] leading-[1.04] tracking-[-0.035em] font-bold md:text-display-xl text-ink">
             Prove you qualify.<br />Buy unseen.<br /><span className="dusk-text">Claim unlinked.</span>
           </h1>
           <p className="text-xl text-on-surface-variant max-w-xl">
@@ -99,10 +99,10 @@ export function Home() {
 
 function LedgerMock() {
   const rows = [
-    ['buyTicket', '0x9f3c…a1e2', '1,000 tUSD'],
-    ['buyTicket', '0x41d0…77b9', '1,000 tUSD'],
-    ['claim · t0', '0xc7e5…09fa', '+333 NOVA'],
-    ['buyTicket', '0x2b8a…f413', '1,000 tUSD'],
+    ['buyTicket', '9f3c5be0…a1e2', '1,000 tUSD'],
+    ['buyTicket', '41d07c93…77b9', '1,000 tUSD'],
+    ['claim · t0', 'c7e52a18…09fa', '+333 NOVA'],
+    ['buyTicket', '2b8ad461…f413', '1,000 tUSD'],
   ];
   return (
     <div className="relative w-full max-w-xl mx-auto lg:ml-auto">
@@ -122,7 +122,7 @@ function LedgerMock() {
           </div>
         ))}
         <div className="mt-5 rounded-2xl bg-primary-fixed p-4 text-[13px] text-[#22005d]">
-          Country, KYC level, wallet, and tickets-per-person: <b>not in any transaction.</b> Illustrative rows; the hidden fields were checked by decoding real transactions on a local ledger-8 network.
+          Country, KYC level, wallet, and tickets-per-person: <b>not in any transaction.</b> Example rows in Midnight format (32-byte hex, no 0x). The hidden fields were checked by decoding real transactions on a local ledger-8 network.
         </div>
       </div>
     </div>

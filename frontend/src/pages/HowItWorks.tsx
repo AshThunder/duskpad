@@ -36,7 +36,7 @@ export function HowItWorks() {
           <div className="bg-butter p-8 rounded-card shadow-tint rotate-2 max-w-sm ml-auto">
             <div className="label-mono border-b border-ink/20 pb-2 mb-4">PUBLIC LEDGER · buyTicket</div>
             <div className="space-y-3 font-mono text-[13px]">
-              {[['buy nullifier', '0x7a1e…c3'], ['receipt commit', '0x09bd…44'], ['vault coin', '1,000 tUSD']].map(([k, v]) => (
+              {[['buy nullifier', '7a1e4f02…c3'], ['receipt commit', '09bd6e7a…44'], ['vault coin', '1,000 tUSD']].map(([k, v]) => (
                 <div key={k} className="flex justify-between border-b border-ink/10 pb-2"><span>{k}</span><span className="font-bold">{v}</span></div>
               ))}
               {['buyer', 'country', 'KYC level', 'tickets held'].map((k) => (
@@ -125,7 +125,7 @@ function Steps({ title, sub, color, items }: { title: string; sub: string; color
         {items.map(([t, d], i) => (
           <div key={t} className="panel p-8 relative">
             <div className={`absolute -top-4 -left-4 w-12 h-12 ${color} text-white rounded-full flex items-center justify-center font-display text-xl shadow-lg`}>{i + 1}</div>
-            <h3 className="font-display text-xl mb-3 mt-3">{t}</h3>
+            <h3 className="font-display text-xl font-bold mb-3 mt-3">{t}</h3>
             <p className="text-on-surface-variant">{d}</p>
           </div>
         ))}
