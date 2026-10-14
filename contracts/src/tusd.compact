@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Chris Gold
+//
+// tUSD: a TEST shielded stablecoin faucet for DuskPad. Anyone may mint a bounded amount.
+// The token color is tokenType(domain, contractAddress) and is derived off-chain after
+// deployment (computing it from kernel.self() inside the constructor yields a different
+// value on ledger 8, see README "Findings").
+
+pragma language_version >= 0.20;
+import CompactStandardLibrary;
+
+export sealed ledger domain: Bytes<32>;
+export sealed ledger nonceSeed: Bytes<32>;
+export sealed ledger maxPerMint: Uint<64>;
+export ledger mints: Counter;
+
+constructor(d: Bytes<32>, seed: Bytes<32>, cap: Uint<64>) {
+  domain = disclose(d);
+  nonceSeed = disclose(seed);
+  maxPerMint = disclose(cap);
+}
+
+// Mint to the caller's own shielded key.
+export circuit mint(amount: Uint<64>): [] {
+  const a = disclose(amount);
+  assert(a > 0 && a <= maxPerMint, "faucet limit");
+  const nonce = evolveNonce(mints.read(), nonceSeed);
+  mints.increment(1);
+  mintShieldedToken(domain, a, nonce, left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()));
+}
+
+// Mint to another shielded coin key (the caller must supply the recipient's encryption key).
+export circuit mintTo(amount: Uint<64>, to: ZswapCoinPublicKey): [] {
+  const a = disclose(amount);
+  assert(a > 0 && a <= maxPerMint, "faucet limit");
+  const nonce = evolveNonce(mints.read(), nonceSeed);
+  mints.increment(1);
+  mintShieldedToken(domain, a, nonce, left<ZswapCoinPublicKey, ContractAddress>(disclose(to)));
+}

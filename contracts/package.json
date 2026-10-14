@@ -1,0 +1,24 @@
+{
+  "name": "@duskpad/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./sale": "./managed/sale/contract/index.js",
+    "./tusd": "./managed/tusd/contract/index.js",
+    "./paths": "./paths.js"
+  },
+  "scripts": {
+    "compile": "compact compile +0.31.1 src/sale.compact managed/sale && compact compile +0.31.1 src/tusd.compact managed/tusd",
+    "compile:fast": "compact compile +0.31.1 --skip-zk src/sale.compact managed/sale && compact compile +0.31.1 --skip-zk src/tusd.compact managed/tusd",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0"
+  },
+  "devDependencies": {
+    "@duskpad/sdk": "^0.1.0",
+    "vitest": "3.2.4"
+  }
+}

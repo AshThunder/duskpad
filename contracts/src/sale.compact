@@ -1,0 +1,252 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Chris Gold
+//
+// DuskPad sale contract (Midnight ledger 8, Compact 0.31.1).
+//
+// One instance is deployed per token sale. It implements:
+//   * eligibility: an issuer-signed credential (Schnorr over Jubjub) verified in-circuit,
+//     bound to a holder secret that never leaves the buyer's device;
+//   * fixed-price tickets paid in a shielded stablecoin, one ticket per transaction;
+//   * a per-person ticket cap enforced with indexed nullifiers H(sale, holder, i), i < cap,
+//     so the chain never learns who bought or how many tickets one person holds;
+//   * two sale kinds: fixed-price with a soft cap (private refunds if missed) and
+//     capped first-come (no minimum);
+//   * a vesting schedule (cliff + equal tranches) where sale tokens are minted at claim
+//     time to whichever wallet submits the claim, including a brand-new one;
+//   * project withdrawal net of a platform fee, and platform fee collection;
+//   * optional auditor disclosure (hashed ElGamal of the holder commitment) behind a flag.
+//
+// Division is never done in-circuit: quotients come from a witness and are checked
+// with multiplication (q*d + r == n, r < d).
+
+pragma language_version >= 0.20;
+import CompactStandardLibrary;
+
+export enum Phase { live, succeeded, failed }
+export enum SaleKind { fixedPrice, firstCome }
+
+export struct SaleParams {
+  kind: SaleKind;
+  payColor: Bytes<32>;            // shielded token accepted as payment (tUSD color)
+  ticketPrice: Uint<64>;          // price of one ticket, in payment base units
+  tokensPerTicket: Uint<64>;      // sale tokens one ticket vests, in base units
+  softCapTickets: Uint<32>;       // fixedPrice: minimum tickets for success; firstCome: 0
+  hardCapTickets: Uint<32>;       // maximum tickets
+  maxTicketsPerPerson: Uint<16>;  // N in "up to N tickets per person"
+  startTime: Uint<64>;            // unix seconds
+  endTime: Uint<64>;
+  cliffTime: Uint<64>;            // first tranche unlock
+  trancheCount: Uint<8>;          // equal tranches (remainder goes to the last one)
+  trancheInterval: Uint<64>;      // seconds between tranche unlocks
+  feeBps: Uint<16>;               // platform fee in basis points
+  feeKey: Bytes<32>;              // keyOf(platform admin secret)
+  saleId: Bytes<32>;              // domain separator for all hashes of this sale
+  tokenDomain: Bytes<32>;         // sale token domain; color = tokenType(domain, this contract)
+  nonceSeed: Bytes<32>;
+  issuerPk: JubjubPoint;          // credential issuer public key
+  minKyc: Uint<8>;
+  blockedCountries: Vector<4, Field>; // ISO-3166 numeric codes, 0 = unused slot
+  auditorEnabled: Boolean;
+  auditorPk: JubjubPoint;
+}
+
+export struct AuditRecord {
+  ephemeral: JubjubPoint;   // r*G
+  ciphertext: Field;        // holderCommit + H(r*auditorPk)
+}
+
+export sealed ledger config: SaleParams;
+export sealed ledger projectKey: Bytes<32>;
+export sealed ledger feePerTicket: Uint<64>;
+export sealed ledger trancheAmount: Uint<64>;
+export sealed ledger lastTrancheAmount: Uint<64>;
+
+export ledger phase: Phase;
+export ledger ticketsSold: Counter;
+export ledger buyNullifiers: Set<Bytes<32>>;
+export ledger receipts: HistoricMerkleTree<16, Bytes<32>>;
+export ledger receiptNullifiers: Set<Bytes<32>>;
+export ledger vault: Set<QualifiedShieldedCoinInfo>;
+export ledger feeVault: Set<QualifiedShieldedCoinInfo>;
+export ledger mintCounter: Counter;
+export ledger refundsPaid: Counter;
+export ledger claimsPaid: Counter;
+export ledger ticketsWithdrawn: Counter;
+export ledger feeCoinsCollected: Counter;
+export ledger auditLog: Map<Uint<64>, AuditRecord>;
+
+witness credAttrs(): Vector<4, Field>;   // [holderCommit, country, kycLevel, expiry]
+witness sigR(): JubjubPoint;
+witness sigS(): Field;
+witness splitChallenge(e: Field): [Uint<128>, Uint<128>];
+witness holderSecret(): Bytes<32>;
+witness ticketIndex(): Uint<16>;
+witness receiptSecret(): Bytes<32>;
+witness receiptPath(leaf: Bytes<32>): MerkleTreePath<16, Bytes<32>>;
+witness adminSecret(): Bytes<32>;
+witness divFloor(n: Uint<128>, d: Uint<64>): [Uint<128>, Uint<64>];
+witness auditNonce(): Field;
+
+export circuit keyOf(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "dusk:admin:v1"), sk]);
+}
+
+export circuit holderCommitOf(hs: Bytes<32>): Field {
+  return degradeToTransient(persistentHash<Vector<2, Bytes<32>>>([pad(32, "dusk:holder:v1"), hs]));
+}
+
+circuit checkedDiv(n: Uint<128>, d: Uint<64>): Uint<128> {
+  const qr = divFloor(n, d);
+  assert(disclose(qr[1] < d), "bad remainder");
+  assert(disclose((qr[0] as Field) * (d as Field) + (qr[1] as Field) == (n as Field)), "bad quotient");
+  return qr[0];
+}
+
+constructor(p: SaleParams) {
+  const c = disclose(p);
+  assert(c.hardCapTickets > 0, "hard cap must be positive");
+  assert(c.softCapTickets <= c.hardCapTickets, "soft cap above hard cap");
+  assert(c.kind == SaleKind.fixedPrice || c.softCapTickets == 0, "first-come sales have no soft cap");
+  assert(c.maxTicketsPerPerson > 0, "per-person cap must be positive");
+  assert(c.ticketPrice > 0, "price must be positive");
+  assert(c.startTime < c.endTime, "start must precede end");
+  assert(c.cliffTime >= c.endTime, "cliff must not precede end");
+  assert(c.trancheCount > 0 && c.trancheCount <= 48, "1..48 tranches");
+  assert(c.feeBps <= 2000, "fee above 20%");
+  config = c;
+  projectKey = disclose(keyOf(adminSecret()));
+  feePerTicket = disclose(checkedDiv((c.ticketPrice * c.feeBps) as Uint<128>, 10000)) as Uint<64>;
+  const per = disclose(checkedDiv(c.tokensPerTicket as Uint<128>, c.trancheCount as Uint<64>)) as Uint<64>;
+  trancheAmount = per;
+  lastTrancheAmount = (c.tokensPerTicket - per * ((c.trancheCount - 1) as Uint<64>)) as Uint<64>;
+  phase = Phase.live;
+}
+
+circuit schnorrOk(msg: Vector<4, Field>, R: JubjubPoint, s: Field, pk: JubjubPoint): Boolean {
+  const e = transientHash<Vector<8, Field>>([jubjubPointX(R), jubjubPointY(R), jubjubPointX(pk), jubjubPointY(pk),
+                                             msg[0], msg[1], msg[2], msg[3]]);
+  const parts = splitChallenge(e);
+  assert((parts[0] as Field) * 340282366920938463463374607431768211456 + (parts[1] as Field) == e, "bad split");
+  return ecMulGenerator(s) == ecAdd(R, ecMul(pk, parts[1] as Field));
+}
+
+circuit checkEligible(hs: Bytes<32>): Field {
+  const attrs = credAttrs();
+  assert(disclose(schnorrOk(attrs, sigR(), sigS(), config.issuerPk)), "bad issuer signature");
+  assert(disclose(attrs[0] == holderCommitOf(hs)), "credential not bound to this holder");
+  const country = attrs[1];
+  for (const b of config.blockedCountries) {
+    assert(disclose(b == 0 || country != b), "blocked region");
+  }
+  assert(disclose((attrs[2] as Uint<8>) >= config.minKyc), "kyc level too low");
+  assert(blockTimeLt(disclose(attrs[3] as Uint<64>)), "credential expired");
+  return attrs[0];
+}
+
+circuit receiptLeaf(rs: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "dusk:receipt:v1"), config.saleId, rs]);
+}
+
+export circuit buyTicket(coin: ShieldedCoinInfo): [] {
+  assert(phase == Phase.live, "sale not live");
+  assert(blockTimeGte(config.startTime), "sale not started");
+  assert(blockTimeLt(config.endTime), "sale ended");
+  assert(ticketsSold.lessThan(config.hardCapTickets), "sold out");
+  const c = disclose(coin);
+  assert(c.color == config.payColor, "wrong payment token");
+  assert(c.value == config.ticketPrice, "wrong payment amount");
+
+  const hs = holderSecret();
+  const holder = checkEligible(hs);
+  const idx = ticketIndex();
+  assert(disclose(idx < config.maxTicketsPerPerson), "per-person ticket cap reached");
+  const nul = persistentHash<Vector<4, Bytes<32>>>([pad(32, "dusk:buy:v1"), config.saleId, hs, (idx as Field) as Bytes<32>]);
+  assert(!buyNullifiers.member(disclose(nul)), "ticket index already used");
+  buyNullifiers.insert(disclose(nul));
+
+  // The ElGamal record is always computed and only stored when the flag is on. Keeping the curve
+  // operations outside the branch matters: with them inside `if`, the proof server's /check
+  // panicked ("Point should be part of the subgroup") on sales with the auditor disabled.
+  const r = auditNonce();
+  const shared = ecMul(config.auditorPk, r);
+  const mask = transientHash<Vector<2, Field>>([jubjubPointX(shared), jubjubPointY(shared)]);
+  const record = AuditRecord { ephemeral: ecMulGenerator(r), ciphertext: holder + mask };
+  if (config.auditorEnabled) {
+    auditLog.insert(ticketsSold.read(), disclose(record));
+  }
+
+  receiveShielded(c);
+  vault.insertCoin(c, right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
+  receipts.insert(disclose(receiptLeaf(receiptSecret())));
+  ticketsSold.increment(1);
+}
+
+export circuit finalize(): [] {
+  assert(phase == Phase.live, "already finalized");
+  assert(blockTimeGte(config.endTime) || !ticketsSold.lessThan(config.hardCapTickets), "sale still running");
+  if (ticketsSold.lessThan(config.softCapTickets)) {
+    phase = Phase.failed;
+  } else {
+    phase = Phase.succeeded;
+  }
+}
+
+// Proves knowledge of a receipt secret whose leaf is in the receipts tree and spends
+// the nullifier for `purpose` (refund, or a specific vesting tranche).
+circuit spendReceipt(purpose: Bytes<32>): [] {
+  const rs = receiptSecret();
+  const leaf = receiptLeaf(rs);
+  const path = receiptPath(leaf);
+  assert(disclose(path.leaf == leaf), "path does not match receipt");
+  assert(receipts.checkRoot(disclose(merkleTreePathRoot<16, Bytes<32>>(path))), "unknown receipt");
+  const rn = persistentHash<Vector<4, Bytes<32>>>([pad(32, "dusk:rnul:v1"), config.saleId, rs, purpose]);
+  assert(!receiptNullifiers.member(disclose(rn)), "receipt already used for this");
+  receiptNullifiers.insert(disclose(rn));
+}
+
+export circuit claim(tranche: Uint<8>): [] {
+  assert(phase == Phase.succeeded, "sale did not succeed");
+  const t = disclose(tranche);
+  assert(t < config.trancheCount, "no such tranche");
+  const unlock = config.cliffTime + config.trancheInterval * (t as Uint<64>);
+  assert(blockTimeGte(unlock as Uint<64>), "tranche still locked");
+  spendReceipt((t as Field) as Bytes<32>);
+  const amount = t == config.trancheCount - 1 ? lastTrancheAmount : trancheAmount;
+  const nonce = evolveNonce(mintCounter.read(), config.nonceSeed);
+  mintCounter.increment(1);
+  claimsPaid.increment(1);
+  mintShieldedToken(config.tokenDomain, amount, nonce,
+                    left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()));
+}
+
+export circuit refund(coin: QualifiedShieldedCoinInfo): [] {
+  assert(phase == Phase.failed, "refunds not open");
+  spendReceipt(pad(32, "refund"));
+  const c = disclose(coin);
+  assert(vault.member(c), "not a vault coin");
+  vault.remove(c);
+  refundsPaid.increment(1);
+  sendShielded(c, left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey()), c.value);
+}
+
+export circuit withdraw(coin: QualifiedShieldedCoinInfo, to: ZswapCoinPublicKey): [] {
+  assert(phase == Phase.succeeded, "sale did not succeed");
+  assert(disclose(keyOf(adminSecret()) == projectKey), "not the project");
+  const c = disclose(coin);
+  assert(vault.member(c), "not a vault coin");
+  vault.remove(c);
+  ticketsWithdrawn.increment(1);
+  const r = sendShielded(c, left<ZswapCoinPublicKey, ContractAddress>(disclose(to)), c.value - feePerTicket);
+  if (r.change.is_some) {
+    feeVault.insertCoin(r.change.value, right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
+  }
+}
+
+export circuit collectFee(coin: QualifiedShieldedCoinInfo, to: ZswapCoinPublicKey): [] {
+  assert(disclose(keyOf(adminSecret()) == config.feeKey), "not the platform");
+  const c = disclose(coin);
+  assert(feeVault.member(c), "not a fee coin");
+  feeVault.remove(c);
+  feeCoinsCollected.increment(1);
+  sendShielded(c, left<ZswapCoinPublicKey, ContractAddress>(disclose(to)), c.value);
+}

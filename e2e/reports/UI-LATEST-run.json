@@ -1,0 +1,103 @@
+{
+  "base": "http://127.0.0.1:4173",
+  "saleA": "60180a6f12726bafaa9cd2de90c025f39771fba7b7b397e0d40cccf177a26859",
+  "saleB": "ac4ce22fcac9f3ef3e0fbb973e1bf1e0925ee780522a705c7f0f81eddd4c9943",
+  "results": [
+    {
+      "name": "project deploys a fixed-price sale (soft cap 2, max 2/person, KYC>=2, blocks one region, auditor on)",
+      "ok": true,
+      "secs": 20.142
+    },
+    {
+      "name": "project deploys a second sale that will miss its soft cap",
+      "ok": true,
+      "secs": 18.272
+    },
+    {
+      "name": "alice gets a mock credential (Nigeria, Verified)",
+      "ok": true,
+      "secs": 0.539
+    },
+    {
+      "name": "alice mints test tUSD",
+      "ok": true,
+      "secs": 25.271
+    },
+    {
+      "name": "alice buys ticket 1 of 2 (stepper shows the private pipeline)",
+      "ok": true,
+      "secs": 34.997
+    },
+    {
+      "name": "alice buys ticket 2 of 2",
+      "ok": true,
+      "secs": 28.992
+    },
+    {
+      "name": "alice is stopped at the per-person cap",
+      "ok": true,
+      "secs": 0.497
+    },
+    {
+      "name": "bob gets a credential and buys one ticket",
+      "ok": true,
+      "secs": 57.099
+    },
+    {
+      "name": "carol (blocked region, Basic KYC) is shown as ineligible for NOVA",
+      "ok": true,
+      "secs": 30.16
+    },
+    {
+      "name": "carol re-verifies (Ghana, Verified) and buys one LUMEN ticket",
+      "ok": true,
+      "secs": 27.775
+    },
+    {
+      "name": "anyone finalizes NOVA (succeeded)",
+      "ok": true,
+      "secs": 186.735
+    },
+    {
+      "name": "anyone finalizes LUMEN (failed: refunds open)",
+      "ok": true,
+      "secs": 17.505
+    },
+    {
+      "name": "carol refunds her LUMEN ticket privately",
+      "ok": true,
+      "secs": 30.504
+    },
+    {
+      "name": "project withdraws one ticket of proceeds net of the fee",
+      "ok": true,
+      "secs": 29.464
+    },
+    {
+      "name": "platform collects the fee coin",
+      "ok": true,
+      "secs": 28.484
+    },
+    {
+      "name": "alice exports an encrypted vault backup",
+      "ok": true,
+      "secs": 1.224
+    },
+    {
+      "name": "a fresh wallet imports the backup and sees alice's 2 tickets",
+      "ok": true,
+      "secs": 1.277
+    },
+    {
+      "name": "fresh wallet claims tranche 1 after the cliff (tokens land in the fresh wallet)",
+      "ok": true,
+      "secs": 24.886
+    },
+    {
+      "name": "public sale report renders indexer activity",
+      "ok": true,
+      "secs": 3.738
+    }
+  ],
+  "at": "2026-10-08T10:33:50.653Z"
+}
