@@ -6,7 +6,9 @@
   "type": "module",
   "description": "End-to-end suite against a local ledger-8 Midnight network. Real proofs, real transactions.",
   "scripts": {
-    "start": "tsx src/run.ts"
+    "start": "tsx src/run.ts",
+    "showcase": "tsx src/showcase.ts",
+    "showcase:verify": "node ui/showcase-verify.mjs"
   },
   "dependencies": {
     "@duskpad/contracts": "0.1.0",

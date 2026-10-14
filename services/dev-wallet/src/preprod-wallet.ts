@@ -29,10 +29,17 @@ const wat = () => new Date().toLocaleString('en-GB', { timeZone: 'Africa/Lagos',
 const log = (...a: unknown[]) => console.log(`[${wat()}]`, ...a);
 
 const NET = 'preprod';
+// Midnight's own Preprod indexer was shut down on 9 Oct 2026 (410). Blockfrost serves the same GraphQL API;
+// the project id goes in the query string so the wallet SDK's HTTP and WebSocket clients both carry it.
+const blockfrost = (scheme: 'https' | 'wss') => {
+  const id = process.env.BLOCKFROST_PROJECT_ID;
+  if (!id) { console.error('Set BLOCKFROST_PROJECT_ID (or INDEXER_URL / INDEXER_WS_URL)'); process.exit(2); }
+  return `${scheme}://midnight-preprod.blockfrost.io/api/v0${scheme === 'wss' ? '/ws' : ''}?project_id=${id}`;
+};
 const env: any = {
   walletNetworkId: NET, networkId: NET,
-  indexer: process.env.INDEXER_URL ?? 'https://indexer.preprod.midnight.network/api/v4/graphql',
-  indexerWS: process.env.INDEXER_WS_URL ?? 'wss://indexer.preprod.midnight.network/api/v4/graphql/ws',
+  indexer: process.env.INDEXER_URL ?? blockfrost('https'),
+  indexerWS: process.env.INDEXER_WS_URL ?? blockfrost('wss'),
   node: process.env.NODE_URL ?? 'https://rpc.preprod.midnight.network',
   nodeWS: process.env.NODE_WS_URL ?? 'wss://rpc.preprod.midnight.network',
   proofServer: process.env.PROOF_SERVER_URL ?? 'http://127.0.0.1:6300',
