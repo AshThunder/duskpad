@@ -15,3 +15,7 @@ test-results/
 playwright-report/
 .DS_Store
 *.tsbuildinfo
+.vercel
+.env*
+frontend/dist-vercel/
+services/api/dist/

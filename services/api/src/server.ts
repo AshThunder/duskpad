@@ -10,20 +10,27 @@
 //     configured indexer.
 //   * Network config (tUSD address/color and platform fee key) written by the local bootstrap.
 import http from 'node:http';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   COUNTRIES, KYC_LEVELS, credentialToJSON, pad32, pointOf, saleTokenColor, scalarFrom, signCredential,
 } from '@duskpad/sdk';
+import { blobStore, fileStore, type Store } from './store.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DATA = process.env.DUSKPAD_DATA_DIR ?? path.join(here, '..', 'data');
 const PORT = Number(process.env.PORT ?? 8787);
 const INDEXERS: Record<string, string> = {
   undeployed: process.env.INDEXER_UNDEPLOYED ?? 'http://127.0.0.1:8088/api/v4/graphql',
-  preprod: process.env.INDEXER_PREPROD ?? 'https://indexer.preprod.midnight.network/api/v4/graphql',
+  // Midnight's own Preprod indexer was shut down on 9 Oct 2026; Blockfrost now serves it and needs a
+  // project id (BLOCKFROST_PROJECT_ID, sent as a header so it never reaches the browser).
+  preprod: process.env.INDEXER_PREPROD ?? 'https://midnight-preprod.blockfrost.io/api/v0',
 };
+const BLOCKFROST_ID = process.env.BLOCKFROST_PROJECT_ID ?? '';
+const indexerHeaders = (url: string): Record<string, string> => ({
+  'content-type': 'application/json',
+  ...(BLOCKFROST_ID && /blockfrost\.io/.test(url) ? { project_id: BLOCKFROST_ID } : {}),
+});
 // Demo issuer key. Deterministic by default so local sales keep working across restarts;
 // set ISSUER_SEED to rotate it.
 const ISSUER_SK = scalarFrom(pad32(process.env.ISSUER_SEED ?? 'duskpad-mock-issuer-v1'));
@@ -33,16 +40,9 @@ const CREDENTIAL_DAYS = Number(process.env.CREDENTIAL_DAYS ?? 30);
 const ADMIN_TOKEN = process.env.DUSKPAD_ADMIN_TOKEN ?? '';
 const TUSD_DOMAIN_HEX = '6475736b7061643a745553440000000000000000000000000000000000000000'; // pad32('duskpad:tUSD')
 
-fs.mkdirSync(DATA, { recursive: true });
-const file = (n: string) => path.join(DATA, n);
-function load<T>(n: string, d: T): T {
-  try { return JSON.parse(fs.readFileSync(file(n), 'utf8')) as T; } catch { return d; }
-}
-function save(n: string, v: unknown) {
-  const tmp = file(n) + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(v, null, 2));
-  fs.renameSync(tmp, file(n));
-}
+const store: Store = process.env.BLOB_READ_WRITE_TOKEN && !process.env.DUSKPAD_DATA_DIR ? blobStore() : fileStore(DATA);
+const load = <T>(n: string, d: T) => store.load<T>(n, d);
+const save = (n: string, v: unknown) => store.save(n, v);
 
 export interface SaleEntry {
   address: string;
@@ -63,7 +63,7 @@ async function contractExists(network: string, address: string): Promise<boolean
   const url = INDEXERS[network];
   if (!url) return false;
   const r = await fetch(url, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST', headers: indexerHeaders(url),
     body: JSON.stringify({ query: 'query($a: HexEncoded!){ contractAction(address: $a) { address } }', variables: { a: address } }),
   });
   const j: any = await r.json();
@@ -95,6 +95,18 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
     if (req.method === 'OPTIONS') return send(res, 204, {});
     if (p === '/health') return send(res, 200, { ok: true });
 
+    // ---------------- Preprod indexer proxy (hosted demo) ----------------
+    // The browser reads public Preprod state through /indexer/... on the same origin; the Blockfrost
+    // project id is added here. Queries only: mutations and subscriptions are refused.
+    if (url.pathname.startsWith('/indexer') && req.method === 'POST') {
+      const b = await body(req);
+      if (typeof b?.query !== 'string' || /^\s*(mutation|subscription)\b/.test(b.query)) return send(res, 400, { error: 'queries only' });
+      if (!BLOCKFROST_ID && /blockfrost\.io/.test(INDEXERS.preprod)) return send(res, 503, { error: 'indexer proxy not configured (BLOCKFROST_PROJECT_ID)' });
+      const r = await fetch(INDEXERS.preprod, { method: 'POST', headers: indexerHeaders(INDEXERS.preprod), body: JSON.stringify(b) });
+      res.writeHead(r.status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });
+      return res.end(await r.text());
+    }
+
     // ---------------- mock issuer ----------------
     if (p === '/issuer' && req.method === 'GET') {
       return send(res, 200, {
@@ -118,16 +130,16 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
       const expiry = Math.floor(Date.now() / 1000) + days * 86_400;
       const cred = signCredential(ISSUER_SK, { holderCommit, country, kycLevel, expiry });
       // The issuer learns the holder commitment and attributes, never a wallet address.
-      const log = load<any[]>('issued.json', []);
+      const log = await load<any[]>('issued.json', []);
       log.push({ at: Date.now(), holderCommit: holderCommit.toString(), country, kycLevel, expiry });
-      save('issued.json', log.slice(-5000));
+      await save('issued.json', log.slice(-5000));
       return send(res, 200, credentialToJSON(cred, { issuer: 'DuskPad Mock KYC Issuer', mock: true }));
     }
 
     // ---------------- registry ----------------
     if (p === '/sales' && req.method === 'GET') {
       const network = url.searchParams.get('network');
-      const all = load<SaleEntry[]>('registry.json', []);
+      const all = await load<SaleEntry[]>('registry.json', []);
       return send(res, 200, all.filter((s) => !network || s.network === network).sort((a, b) => b.createdAt - a.createdAt));
     }
     if (p === '/sales' && req.method === 'POST') {
@@ -139,7 +151,7 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
       const name = str(b.name, 60), symbol = str(b.symbol, 12).toUpperCase();
       if (!name || !/^[A-Z0-9]{2,12}$/.test(symbol)) return send(res, 400, { error: 'name and a 2-12 character symbol are required' });
       if (!(await contractExists(network, address))) return send(res, 400, { error: 'contract not found on-chain' });
-      const all = load<SaleEntry[]>('registry.json', []);
+      const all = await load<SaleEntry[]>('registry.json', []);
       if (all.some((s) => s.address === address)) return send(res, 409, { error: 'already registered' });
       const entry: SaleEntry = {
         address, network, name, symbol,
@@ -148,19 +160,19 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
         txHash: str(b.txHash, 80) || undefined, createdAt: Date.now(),
       };
       all.push(entry);
-      save('registry.json', all);
+      await save('registry.json', all);
       return send(res, 201, entry);
     }
     const m = p.match(/^\/sales\/([0-9a-f]{64})$/);
     if (m && req.method === 'GET') {
-      const e = load<SaleEntry[]>('registry.json', []).find((s) => s.address === m[1]);
+      const e = (await load<SaleEntry[]>('registry.json', [])).find((s) => s.address === m[1]);
       return e ? send(res, 200, e) : send(res, 404, { error: 'not registered' });
     }
 
     // ---------------- network config ----------------
     const n = p.match(/^\/networks\/([a-z]+)$/);
     if (n && req.method === 'GET') {
-      const cfg = load<Record<string, unknown>>('networks.json', {})[n[1]];
+      const cfg = (await load<Record<string, unknown>>('networks.json', {}))[n[1]];
       return cfg ? send(res, 200, cfg) : send(res, 404, { error: `no DuskPad deployment recorded for ${n[1]}` });
     }
     // Register a public network deployment from the in-app setup page (the browser deploys tUSD
@@ -169,7 +181,7 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
     if (n && req.method === 'POST') {
       const network = n[1];
       if (network === 'undeployed' || !INDEXERS[network]) return send(res, 400, { error: 'only public networks can be registered here' });
-      const nets = load<Record<string, any>>('networks.json', {});
+      const nets = await load<Record<string, any>>('networks.json', {});
       const token = String(req.headers['x-admin-token'] ?? '');
       if (nets[network] && !(ADMIN_TOKEN && token === ADMIN_TOKEN)) return send(res, 409, { error: `${network} is already configured` });
       const b = await body(req);
@@ -190,7 +202,7 @@ export async function handle(req: http.IncomingMessage, res: http.ServerResponse
         updatedAt: new Date().toISOString(),
       };
       nets[network] = cfg;
-      save('networks.json', nets);
+      await save('networks.json', nets);
       return send(res, 201, cfg);
     }
     return send(res, 404, { error: 'not found' });

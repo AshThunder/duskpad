@@ -7,13 +7,16 @@
   "description": "DuskPad API: MOCK KYC issuer (demo only) and off-chain sale registry.",
   "scripts": {
     "start": "tsx src/server.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "esbuild src/server.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --external:@midnight-ntwrk/* --external:@vercel/blob --external:@scure/*"
   },
   "dependencies": {
     "@duskpad/sdk": "0.1.0",
+    "@vercel/blob": "^2.8.1",
     "tsx": "4.22.4"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "vitest": "3.2.4"
   }
 }

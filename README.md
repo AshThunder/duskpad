@@ -2,6 +2,8 @@
 
 **A private token launchpad on Midnight. Prove you qualify, buy unseen, claim unlinked.**
 
+**Live demo: [duskpad.vercel.app](https://duskpad.vercel.app)** (Midnight Preprod). To buy, mint or claim, install the [1AM wallet](https://1am.xyz) and switch it to Preprod; it proves inside the extension. Lace also works if you run a proof server on `127.0.0.1:6300`.
+
 DuskPad runs compliant token sales where the chain enforces every rule (KYC level, blocked regions, per-person caps, soft cap refunds, vesting) without learning who bought, where they live, or how many tickets any one person holds. Buyers pay in a shielded stablecoin, and vested tokens can be claimed from a wallet that never touched the sale.
 
 > Testnet software. The KYC issuer is a **mock** that signs whatever you ask for. The contracts and the optional auditor-disclosure construction have **not** been audited. Do not use with real funds.
@@ -244,3 +246,7 @@ ci/                 GitHub Actions workflow (see Tests)
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Copyright 2026 Chris Gold.
+
+## Hosted demo (Vercel)
+
+[duskpad.vercel.app](https://duskpad.vercel.app) is the Preprod build (`vercel.json`). The static app is built with `VITE_NETWORK=preprod` and `VITE_PREPROD_PROVER=http://127.0.0.1:6300` (Lace's proof server; 1AM proves in the extension). `api/index.ts` serves `/api/*` with the same handler as `services/api`, bundled by `npm run build -w @duskpad/api`, and keeps its JSON in a private Vercel Blob store (`BLOB_READ_WRITE_TOKEN`). `/indexer/*` is a read-only proxy to the Blockfrost Preprod indexer that adds `BLOCKFROST_PROJECT_ID` server-side, because Midnight's own Preprod indexer was shut down on 9 Oct 2026. Locally, the API still uses `services/api/data/*.json`.

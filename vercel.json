@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build -w @duskpad/api && VITE_NETWORK=preprod VITE_PREPROD_INDEXER=https://duskpad.vercel.app/indexer/api/v4/graphql VITE_PREPROD_PROVER=http://127.0.0.1:6300 DUSKPAD_OUT_DIR=dist-vercel npm run build -w @duskpad/frontend",
+  "outputDirectory": "frontend/dist-vercel",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/indexer/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/((?!api/|indexer/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
